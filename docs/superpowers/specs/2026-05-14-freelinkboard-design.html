@@ -1,0 +1,847 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FreeLinkBoard 第一版设计规格</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #24221f;
+      --muted: #68625a;
+      --line: #ddd7cf;
+      --paper: #fffdf8;
+      --soft: #f5f1ea;
+      --accent: #2f6f6a;
+      --accent-soft: #e8f1ef;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+      line-height: 1.65;
+    }
+
+    main {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 56px 28px 80px;
+    }
+
+    h1, h2, h3 {
+      line-height: 1.25;
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 34px;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin-top: 38px;
+      padding-top: 26px;
+      border-top: 1px solid var(--line);
+      font-size: 24px;
+    }
+
+    h3 {
+      margin-top: 24px;
+      font-size: 18px;
+    }
+
+    p {
+      margin: 12px 0 0;
+    }
+
+    ul {
+      margin: 12px 0 0;
+      padding-left: 22px;
+    }
+
+    li {
+      margin: 6px 0;
+    }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: var(--soft);
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 0.94em;
+    }
+
+    pre {
+      overflow: auto;
+      margin: 14px 0 0;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbf8f1;
+      line-height: 1.5;
+    }
+
+    pre code {
+      padding: 0;
+      background: transparent;
+      font-size: 13px;
+    }
+
+    .meta {
+      margin-top: 14px;
+      color: var(--muted);
+    }
+
+    .note {
+      margin-top: 18px;
+      padding: 14px 16px;
+      border-left: 4px solid var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .status {
+      display: inline-block;
+      margin-top: 18px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: var(--soft);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    table {
+      width: 100%;
+      margin-top: 14px;
+      border-collapse: collapse;
+      font-size: 15px;
+    }
+
+    th, td {
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--soft);
+      font-weight: 650;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>FreeLinkBoard 第一版设计规格</h1>
+    <p class="meta">创建日期：2026-05-14。最后更新：2026-05-15。状态：设计讨论中，用户确认一段就同步更新一段。</p>
+
+    <section id="product-boundary">
+      <h2>1. 产品边界</h2>
+      <p>FreeLinkBoard 第一版是一个本地单人白板笔记软件。它不是协作文档，也不是通用绘图软件；它的核心是让用户用最少动作创建文本节点、延展节点关系、画出有方向感的蓝图式连线。</p>
+      <p>第一版支持多个本地白板文件。每张白板保存为一个独立的 <code>.flb</code> 文件，用户可以从应用内最近白板列表打开，也可以从系统文件夹直接打开文件。新建白板不会覆盖旧白板。</p>
+      <p>第一版只做纯文本节点和关系线，不做矩形、圆形、自由画笔、富文本、Markdown、云同步、多人协作。未来会预留图片节点、URL 节点、PDF 节点、分组、列表和同步能力的扩展空间。</p>
+      <p class="status">已确认</p>
+    </section>
+
+    <section id="confirmed-decisions">
+      <h2>2. 已确认的核心决策</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>主题</th>
+            <th>决定</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>运行形态</td>
+            <td>桌面应用；代码尽量跨平台，但第一版只测试 Windows。</td>
+          </tr>
+          <tr>
+            <td>技术框架</td>
+            <td>Electron + React + TypeScript + 自研高性能混合白板层：HTML/React 节点 + Canvas 背景与连线。</td>
+          </tr>
+          <tr>
+            <td>白板文件</td>
+            <td>第一版使用 JSON 文本格式的 <code>.flb</code> 文件。</td>
+          </tr>
+          <tr>
+            <td>多白板入口</td>
+            <td>应用内有最近白板列表，同时保留从系统文件夹打开 <code>.flb</code> 文件的方式。</td>
+          </tr>
+          <tr>
+            <td>节点类型</td>
+            <td>第一版只有纯文本节点；数据结构保留 <code>node.type</code>，以后可扩展图片等节点。</td>
+          </tr>
+          <tr>
+            <td>节点尺寸</td>
+            <td>默认自适应文字；用户手动拖过大小后锁定尺寸，文本在框内换行。</td>
+          </tr>
+          <tr>
+            <td>节点操作</td>
+            <td>点击选中，双击编辑，按住左键拖动。双击空白处创建节点后立即进入编辑。</td>
+          </tr>
+          <tr>
+            <td>Tab 新节点</td>
+            <td>按 <code>Tab</code> 在附近找空位生成一个相连的新节点。</td>
+          </tr>
+          <tr>
+            <td>连线创建</td>
+            <td>选中节点后按 <code>Ctrl+L</code>，从节点拉出一条线；点击节点连接节点，点击空白处落到白板位置。</td>
+          </tr>
+          <tr>
+            <td>默认线样式</td>
+            <td>蓝图风格曲线 + 单向箭头。</td>
+          </tr>
+          <tr>
+            <td>线样式能力</td>
+            <td>支持直线、曲线、圆角折线；无箭头、单向箭头、双向箭头；实线、虚线；颜色和粗细。</td>
+          </tr>
+          <tr>
+            <td>线固定点</td>
+            <td>双击线上的任意位置插入一个可拖动固定点；固定点只在悬停或选中线时显示。</td>
+          </tr>
+          <tr>
+            <td>线工具条</td>
+            <td>选中线后，样式工具条浮在线旁边。</td>
+          </tr>
+          <tr>
+            <td>画布导航</td>
+            <td>默认 <code>Ctrl + 滚轮</code> 缩放，可设置为滚轮直接缩放；按住右键拖动画布。</td>
+          </tr>
+          <tr>
+            <td>多选</td>
+            <td>支持空白处左键框选，多选后一组移动。</td>
+          </tr>
+          <tr>
+            <td>撤销历史</td>
+            <td>运行时支持 <code>Ctrl+Z</code> / <code>Ctrl+Y</code>，关闭文件后不保存撤销历史。</td>
+          </tr>
+          <tr>
+            <td>保存</td>
+            <td>支持自动保存和手动保存；已命名文件编辑后延迟自动保存，<code>Ctrl+S</code> 立即保存。</td>
+          </tr>
+          <tr>
+            <td>搜索</td>
+            <td><code>Ctrl+F</code> 搜索当前白板文本节点，定位并高亮结果。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="canvas-interactions">
+      <h2>3. 画布交互设计</h2>
+      <p>第一版的画布交互要尽量像“手已经知道该怎么做”，不依赖复杂模式切换。默认状态下，左键负责选择和编辑对象，右键负责移动视野，快捷键负责生成关系。</p>
+
+      <h3>节点创建与编辑</h3>
+      <p>用户在空白处双击时，系统创建一个纯文本节点，并立即进入编辑状态。用户不需要先画框，也不需要再点一次；光标已经在节点里，可以直接输入。节点默认根据内容自动撑开。如果用户拖过节点边缘，节点进入固定尺寸模式，后续文字在框内自动换行。</p>
+      <p>已有节点上，单击表示选中，双击表示进入文字编辑，按住左键拖动表示移动。创建节点后的首次输入是一个特殊例外：创建即编辑。编辑结束可以通过 <code>Esc</code>、点击空白处，或者按 <code>Tab</code> 创建下一个相连节点。</p>
+
+      <h3>Tab 创建相连节点</h3>
+      <p><code>Tab</code> 是“继续思考”的动作。当一个节点被选中，或者用户正在编辑一个节点时，按 <code>Tab</code> 会结束当前编辑，在附近找一个不拥挤的位置创建新节点，并自动连线到它。新节点创建后立即进入编辑状态，让用户可以连续输入一串想法。</p>
+
+      <h3>Ctrl+L 拉关系线</h3>
+      <p><code>Ctrl+L</code> 是“拉关系线”的动作，必须先选中一个节点。按下后进入连线预览，线从节点边缘伸出并跟随鼠标移动。点击另一个节点时，线吸附到目标节点；点击空白处时，线终点固定在白板位置。按 <code>Esc</code> 取消连线创建。默认新线是蓝图风格曲线，并带单向箭头。</p>
+
+      <h3>线编辑与固定点</h3>
+      <p>单击线会选中该线，并在线旁浮出样式工具条。双击线上的某个位置，会在该位置插入一个可拖动固定点。固定点平时不显示，只有悬停线或选中线时出现。拖动固定点时，线会被该固定点牵引并重新计算路径。选中固定点后按 <code>Delete</code> 可以删除它。</p>
+
+      <h3>框选、拖动画布与缩放</h3>
+      <p>空白处左键拖动用于框选。框选后可以一组移动节点，相关连线跟随节点位置重新计算。空白处右键拖动用于平移画布。默认 <code>Ctrl + 滚轮</code> 缩放，缩放以鼠标位置为中心；设置里可以切换为滚轮直接缩放。</p>
+
+      <h3>输入与命中优先级</h3>
+      <p>正在编辑文字时，键盘输入优先交给文字节点；<code>Esc</code> 退出编辑；<code>Tab</code> 被定义为创建相连节点，不插入制表符。鼠标命中优先级为：固定点、线、节点、空白画布。这样用户拖动固定点时不会误选整条线，选择线时也不会误触空白画布。</p>
+      <p class="status">已确认</p>
+    </section>
+
+    <section id="file-format">
+      <h2>4. 数据模型和 .flb 文件格式</h2>
+      <p>第一版的 <code>.flb</code> 文件使用可读 JSON 文本格式。文件保存白板元信息、视口状态、节点列表和连线列表。这样即使应用出现问题，用户或开发者也能直接打开文件检查内容，后续迁移和兼容也更容易。</p>
+
+      <h3>顶层结构</h3>
+      <pre><code>{
+  "version": 1,
+  "title": "游戏系统图",
+  "createdAt": "2026-05-14T12:00:00.000Z",
+  "updatedAt": "2026-05-14T12:30:00.000Z",
+  "viewport": {
+    "x": 0,
+    "y": 0,
+    "zoom": 1
+  },
+  "nodes": [],
+  "edges": []
+}</code></pre>
+      <p>这里的 JSON 是持久化 DTO，不要求和应用内 Domain Model 逐字段一致。Loader 会把文件中的 <code>x</code>、<code>y</code>、<code>width</code>、<code>height</code> 映射为 Domain 层的 <code>position</code> 和 <code>size</code>；Saver 会把 Domain 状态输出为稳定、可读的文件结构。</p>
+
+      <h3>节点结构</h3>
+      <p>节点必须包含 <code>type</code>，第一版只实现 <code>text</code>，但结构上允许未来扩展 <code>image</code>、<code>url</code>、<code>pdf</code>、<code>group</code> 等节点类型。</p>
+      <pre><code>{
+  "id": "node_1",
+  "type": "text",
+  "x": 120,
+  "y": 180,
+  "width": 160,
+  "height": 56,
+  "sizing": "auto",
+  "text": "背包系统",
+  "style": {
+    "borderColor": "#24221f",
+    "backgroundColor": "#fffdf8",
+    "textColor": "#24221f"
+  }
+}</code></pre>
+      <p><code>sizing</code> 用来区分节点尺寸状态。<code>auto</code> 表示节点根据文字内容自适应；<code>fixed</code> 表示用户手动拖过大小，文字在框内换行。</p>
+
+      <h3>连线结构</h3>
+      <p>连线两端既可以连接节点，也可以落到白板上的固定点。这样 <code>Ctrl+L</code> 拉线时，点击节点和点击空白处都能用同一种数据结构保存。</p>
+      <pre><code>{
+  "id": "edge_1",
+  "from": {
+    "type": "node",
+    "id": "node_1"
+  },
+  "to": {
+    "type": "point",
+    "x": 420,
+    "y": 220
+  },
+  "pathType": "bezier",
+  "arrow": "end",
+  "stroke": {
+    "color": "#2f6f6a",
+    "width": 2,
+    "dash": "solid"
+  },
+  "fixedPoints": [
+    {
+      "x": 280,
+      "y": 130
+    }
+  ]
+}</code></pre>
+      <p><code>pathType</code> 支持 <code>bezier</code>、<code>straight</code>、<code>roundedElbow</code>。<code>arrow</code> 支持 <code>none</code>、<code>end</code>、<code>both</code>。<code>stroke.dash</code> 支持 <code>solid</code> 和 <code>dashed</code>。<code>fixedPoints</code> 保存用户双击线后加入的固定点。</p>
+
+      <h3>兼容策略</h3>
+      <p>文件包含 <code>version</code> 字段。第一版读取文件时只承诺支持 <code>version: 1</code>，后续如果引入附件包、图片资源或同步元数据，可以通过版本迁移升级。第一版不保存撤销历史，只保存白板最终状态。</p>
+      <p class="status">已确认</p>
+    </section>
+
+    <section id="code-architecture-patterns">
+      <h2>5. 代码架构与设计模式</h2>
+      <p>第一版采用 Clean Architecture / Hexagonal Architecture 思路：核心白板逻辑不依赖 Electron、React、DOM、文件系统或第三方服务。React 是表现层，Electron 是桌面与文件系统适配器，核心业务通过接口、策略和命令向外暴露能力。</p>
+      <p>推荐方案是 Clean/Hexagonal Architecture + Command + Strategy + Repository + 依赖注入。这样可以同时满足低耦合、可测试、可扩展。暂不采用完整事件溯源或插件系统，因为第一版会过重；也不直接套通用白板库，因为 FreeLinkBoard 的 Tab 生节点、Ctrl+L 拉线、双击线插固定点等交互非常定制。</p>
+
+      <h3>架构边界</h3>
+      <ul>
+        <li>Domain 层定义白板实体、值对象和业务接口，不依赖任何外部系统。</li>
+        <li>Application 层承载用例、命令、撤销重做、保存调度等应用逻辑。</li>
+        <li>Infrastructure 层实现文件系统、Electron IPC、配置读写等外部适配器。</li>
+        <li>Presentation 层由 React 组件组成，只负责渲染状态和把用户输入转成应用用例调用。</li>
+        <li>Composition 层负责组装依赖，把具体实现注入到用例和服务中。</li>
+      </ul>
+
+      <h3>核心设计模式</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>模式</th>
+            <th>用途</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Command</td>
+            <td>创建节点、移动节点、编辑文字、创建线、插入固定点、改线样式等修改操作都封装为命令。命令提供 <code>execute</code> 和 <code>undo</code>，保证撤销重做稳定。</td>
+          </tr>
+          <tr>
+            <td>Strategy</td>
+            <td>Tab 新节点找空位、线径生成、线命中测试、箭头渲染等行为通过策略扩展。后续可替换更聪明的布局算法或更多线型。</td>
+          </tr>
+          <tr>
+            <td>Repository</td>
+            <td>文档读写通过 <code>DocumentRepository</code> 抽象隔离。第一版实现 Electron 本地文件仓库，未来可替换为云同步仓库或内存仓库。</td>
+          </tr>
+          <tr>
+            <td>Dependency Injection</td>
+            <td>核心服务依赖接口，不直接 new 外部实现。应用启动时统一组装依赖，单元测试时可以注入假实现。</td>
+          </tr>
+          <tr>
+            <td>State Store</td>
+            <td>白板内容、文件保存状态、界面临时状态拆成不同 store，避免 React 组件直接持有复杂业务逻辑。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Domain Model 示例</h3>
+      <pre><code>export type NodeId = string;
+export type EdgeId = string;
+export type Point = { x: number; y: number };
+
+export type EdgeGeometry =
+  | { type: "straight"; points: Point[] }
+  | { type: "bezier"; points: Point[] }
+  | { type: "roundedElbow"; points: Point[]; radius: number };
+
+export type TextNode = {
+  id: NodeId;
+  type: "text";
+  position: Point;
+  size: { width: number; height: number };
+  sizing: "auto" | "fixed";
+  text: string;
+};
+
+export type BoardNode = TextNode;
+
+export type EdgeEndpoint =
+  | { type: "node"; nodeId: NodeId }
+  | { type: "point"; point: Point };
+
+export type BoardEdge = {
+  id: EdgeId;
+  from: EdgeEndpoint;
+  to: EdgeEndpoint;
+  pathType: "bezier" | "straight" | "roundedElbow";
+  arrow: "none" | "end" | "both";
+  stroke: { color: string; width: number; dash: "solid" | "dashed" };
+  fixedPoints: Point[];
+};
+
+export type BoardState = {
+  nodes: Record&lt;NodeId, BoardNode&gt;;
+  edges: Record&lt;EdgeId, BoardEdge&gt;;
+  selection: { nodeIds: NodeId[]; edgeIds: EdgeId[] };
+};</code></pre>
+
+      <h3>Ports 示例</h3>
+      <pre><code>export interface IdGenerator {
+  next(prefix: string): string;
+}
+
+export interface NodePlacementStrategy {
+  placeNextNode(input: {
+    sourceNode: BoardNode;
+    existingNodes: BoardNode[];
+    preferredSize: { width: number; height: number };
+  }): Point;
+}
+
+export interface EdgePathStrategy {
+  buildPath(input: {
+    edge: BoardEdge;
+    resolveEndpoint: (endpoint: EdgeEndpoint) =&gt; Point;
+  }): EdgeGeometry;
+}
+
+export interface BoardDefaults {
+  textNodeSize: { width: number; height: number };
+  edgeStyle: {
+    pathType: BoardEdge["pathType"];
+    arrow: BoardEdge["arrow"];
+    stroke: BoardEdge["stroke"];
+  };
+}
+
+export interface DocumentRepository {
+  load(path: string): Promise&lt;BoardState&gt;;
+  save(path: string, state: BoardState): Promise&lt;void&gt;;
+}</code></pre>
+
+      <h3>Command 示例</h3>
+      <pre><code>export interface BoardCommand {
+  name: string;
+  execute(state: BoardState): BoardState;
+  undo(state: BoardState): BoardState;
+}
+
+export class CreateLinkedTextNodeCommand implements BoardCommand {
+  name = "create-linked-text-node";
+
+  private createdNode?: TextNode;
+  private createdEdge?: BoardEdge;
+
+  constructor(
+    private readonly sourceNodeId: NodeId,
+    private readonly ids: IdGenerator,
+    private readonly placement: NodePlacementStrategy,
+    private readonly defaults: BoardDefaults
+  ) {}
+
+  execute(state: BoardState): BoardState {
+    const sourceNode = state.nodes[this.sourceNodeId];
+    if (!sourceNode) return state;
+
+    const position = this.placement.placeNextNode({
+      sourceNode,
+      existingNodes: Object.values(state.nodes),
+      preferredSize: this.defaults.textNodeSize
+    });
+
+    this.createdNode = {
+      id: this.ids.next("node"),
+      type: "text",
+      position,
+      size: this.defaults.textNodeSize,
+      sizing: "auto",
+      text: ""
+    };
+
+    this.createdEdge = {
+      id: this.ids.next("edge"),
+      from: { type: "node", nodeId: sourceNode.id },
+      to: { type: "node", nodeId: this.createdNode.id },
+      pathType: this.defaults.edgeStyle.pathType,
+      arrow: this.defaults.edgeStyle.arrow,
+      stroke: this.defaults.edgeStyle.stroke,
+      fixedPoints: []
+    };
+
+    return {
+      ...state,
+      nodes: { ...state.nodes, [this.createdNode.id]: this.createdNode },
+      edges: { ...state.edges, [this.createdEdge.id]: this.createdEdge },
+      selection: { nodeIds: [this.createdNode.id], edgeIds: [] }
+    };
+  }
+
+  undo(state: BoardState): BoardState {
+    if (!this.createdNode || !this.createdEdge) return state;
+    const { [this.createdNode.id]: removedNode, ...nodes } = state.nodes;
+    const { [this.createdEdge.id]: removedEdge, ...edges } = state.edges;
+    return { ...state, nodes, edges };
+  }
+}</code></pre>
+
+      <h3>History Service 示例</h3>
+      <pre><code>export class HistoryService {
+  private undoStack: BoardCommand[] = [];
+  private redoStack: BoardCommand[] = [];
+
+  constructor(private state: BoardState) {}
+
+  run(command: BoardCommand): BoardState {
+    this.state = command.execute(this.state);
+    this.undoStack.push(command);
+    this.redoStack = [];
+    return this.state;
+  }
+
+  undo(): BoardState {
+    const command = this.undoStack.pop();
+    if (!command) return this.state;
+    this.state = command.undo(this.state);
+    this.redoStack.push(command);
+    return this.state;
+  }
+}</code></pre>
+
+      <h3>Strategy 示例</h3>
+      <pre><code>export class NearestFreeSpaceStrategy implements NodePlacementStrategy {
+  constructor(private readonly config: { gap: number; searchStep: number }) {}
+
+  placeNextNode(input: {
+    sourceNode: BoardNode;
+    existingNodes: BoardNode[];
+    preferredSize: { width: number; height: number };
+  }): Point {
+    const base = input.sourceNode.position;
+    const candidates = [
+      { x: base.x + input.sourceNode.size.width + this.config.gap, y: base.y },
+      { x: base.x, y: base.y + input.sourceNode.size.height + this.config.gap },
+      { x: base.x, y: base.y - input.preferredSize.height - this.config.gap }
+    ];
+
+    return candidates.find(point =&gt; !this.collides(point, input)) ?? candidates[0];
+  }
+
+  private collides(point: Point, input: {
+    existingNodes: BoardNode[];
+    preferredSize: { width: number; height: number };
+  }): boolean {
+    return input.existingNodes.some(node =&gt;
+      point.x &lt; node.position.x + node.size.width &amp;&amp;
+      point.x + input.preferredSize.width &gt; node.position.x &amp;&amp;
+      point.y &lt; node.position.y + node.size.height &amp;&amp;
+      point.y + input.preferredSize.height &gt; node.position.y
+    );
+  }
+}</code></pre>
+
+      <h3>Repository 与依赖组装示例</h3>
+      <pre><code>export class ElectronDocumentRepository implements DocumentRepository {
+  constructor(private readonly api: ElectronFileApi) {}
+
+  async load(path: string): Promise&lt;BoardState&gt; {
+    const raw = await this.api.loadFlb(path);
+    return parseFlbDocument(raw);
+  }
+
+  async save(path: string, state: BoardState): Promise&lt;void&gt; {
+    await this.api.saveFlb(path, serializeFlbDocument(state));
+  }
+}
+
+export function createBoardServices(api: ElectronFileApi) {
+  const config = {
+    defaults: {
+      textNodeSize: { width: 160, height: 56 },
+      edgeStyle: {
+        pathType: "bezier",
+        arrow: "end",
+        stroke: { color: "#2f6f6a", width: 2, dash: "solid" }
+      }
+    },
+    placement: { gap: 56, searchStep: 40 },
+  };
+
+  return {
+    documentRepository: new ElectronDocumentRepository(api),
+    placementStrategy: new NearestFreeSpaceStrategy(config.placement),
+    idGenerator: new NanoIdGenerator(),
+    defaults: config.defaults
+  };
+}</code></pre>
+
+      <h3>SOLID 约束</h3>
+      <ul>
+        <li>单一职责：React 组件不处理文件系统，Geometry 不处理 React 渲染，Command 不处理弹窗和菜单。</li>
+        <li>开闭原则：新增节点类型、线型、布局算法时优先新增策略或渲染器，不修改既有核心流程。</li>
+        <li>依赖倒置：Application 层依赖 <code>DocumentRepository</code>、<code>NodePlacementStrategy</code>、<code>IdGenerator</code> 等接口，不依赖 Electron 或具体库。</li>
+        <li>接口隔离：文件读写、ID 生成、线径计算、节点放置分别是小接口，不做巨大万能服务。</li>
+        <li>可测试性：核心逻辑用内存仓库、固定 ID 生成器、假策略即可测试，不需要启动 Electron 或浏览器。</li>
+      </ul>
+      <p class="status">已确认</p>
+    </section>
+
+    <section id="rendering-architecture">
+      <h2>6. 核心渲染方案</h2>
+      <p>第一版采用高性能混合渲染方案：HTML/React 负责可编辑节点，Canvas 负责背景和连线批量绘制，轻量 Overlay 负责当前交互状态。白板内部使用统一世界坐标系，节点位置、线端点、固定点都保存为白板坐标；缩放和平移只改变 <code>viewport.x</code>、<code>viewport.y</code>、<code>viewport.zoom</code>。</p>
+
+      <h3>渲染分层</h3>
+      <pre><code>BoardViewport
+  GridCanvasLayer          背景网格，Canvas 绘制
+  EdgeCanvasLayer          可见线、箭头、虚线、路径，Canvas 绘制
+  NodeDomLayer             只挂载视口内 HTML/React 节点
+  InteractionOverlayLayer  框选、连线预览、固定点、工具条、搜索高亮</code></pre>
+      <p>节点仍然使用 HTML/React 渲染，因为文本编辑、自适应尺寸、输入法、复制粘贴，以及未来图片、URL、PDF 卡片扩展都更自然。但节点层必须做视口裁剪，只挂载视口内或视口附近缓冲区内的节点，视口外节点只保留在 store 和空间索引中。</p>
+      <p>连线使用 Canvas 绘制，而不是每条线一个 SVG path。线的路径、箭头、虚线、颜色、粗细和固定点影响的曲线都由 Geometry 层计算，再由 Canvas 批量绘制。这样在大量线条和频繁缩放平移时，性能上限更高。</p>
+
+      <h3>高性能机制</h3>
+      <ul>
+        <li>空间索引：节点和线都维护 bounds，并放入 R-tree 或等价空间索引。渲染、框选、命中测试优先从索引取候选对象。</li>
+        <li>视口裁剪：DOM 节点只渲染可见节点，Canvas 线层只绘制可见线。远处对象不参与当前帧渲染。</li>
+        <li>路径缓存：每条线的几何路径缓存起来。只有节点移动、固定点变化、线样式变化或端点变化时才重新计算。</li>
+        <li>LOD 简化：缩放很小时，节点显示为简化矩形和短标题，隐藏完整文本和细节；线也可以降低绘制细节。放大后恢复完整显示。</li>
+        <li>交互层分离：拖动节点、框选矩形、连线预览、固定点小圆点、浮动工具条放在轻量 Overlay 中，避免触发整张白板 React 重渲染。</li>
+        <li>渲染调度：滚动、缩放、拖拽等连续交互通过 requestAnimationFrame 合批绘制。保存和索引重建不能阻塞当前帧。</li>
+      </ul>
+
+      <h3>命中测试</h3>
+      <p>节点点击可以使用 DOM 事件作为入口，但线和固定点不依赖 DOM path。<code>HitTestService</code> 会把鼠标位置转换为白板坐标，先通过空间索引找附近候选线，再计算鼠标到曲线或折线的距离。这样即使线由 Canvas 绘制，也能支持悬停、选中、双击插入固定点和拖动固定点。</p>
+
+      <h3>可替换渲染后端</h3>
+      <p>第一版使用 Canvas2D 实现连线渲染，但通过接口隔离，后续可以替换为 PixiJS/WebGL 或其他 GPU 渲染后端，而不改业务层。</p>
+      <pre><code>export interface EdgeRenderBackend {
+  resize(size: ViewportSize): void;
+  render(input: {
+    viewport: Viewport;
+    edges: VisibleEdgeRenderModel[];
+    nodes: NodeBoundsIndex;
+  }): void;
+  dispose(): void;
+}</code></pre>
+
+      <h3>方案取舍</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>方案</th>
+            <th>结论</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>纯 HTML/SVG</td>
+            <td>实现简单，但大图上限较低，不作为第一版最终方案。</td>
+          </tr>
+          <tr>
+            <td>全 Canvas/Pixi</td>
+            <td>性能最高，但文本编辑和未来卡片节点复杂，不适合 FreeLinkBoard 的核心体验。</td>
+          </tr>
+          <tr>
+            <td>HTML 节点 + Canvas 线层</td>
+            <td>节点编辑自然，线条批量绘制高效，是第一版推荐方案。</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="status">已确认</p>
+    </section>
+
+    <section id="quality-strategy">
+      <h2>7. 测试与质量策略</h2>
+      <p>第一版把“手感”和“文件安全”作为质量核心。测试目标不是只证明按钮能点，而是证明节点不会丢、连线不会乱、撤销可靠、大图不会拖垮应用。</p>
+
+      <h3>单元测试</h3>
+      <p>核心逻辑必须脱离 React、Electron、DOM 和真实文件系统单测。测试中使用固定 ID 生成器、假仓库、假时间和内存数据。</p>
+      <ul>
+        <li>Geometry：节点边缘连接点、贝塞尔曲线路径、直线路径、圆角折线路径、固定点插入、鼠标到线距离、框选相交。</li>
+        <li>PlacementStrategy：按 <code>Tab</code> 后找附近空位，不压到已有节点；拥挤时能继续扩散。</li>
+        <li>Command/History：创建节点、移动节点、编辑文本、创建线、插入固定点、改线样式、删除对象都能 <code>execute</code>、<code>undo</code>、<code>redo</code>。</li>
+        <li>Document：<code>.flb</code> 读取、默认值补齐、坏文件报错、保存后再读取内容一致。</li>
+        <li>SpatialIndex：视口查询、框选查询、移动节点后索引更新正确。</li>
+      </ul>
+
+      <h3>集成测试</h3>
+      <p>集成测试验证多个核心模块组合后的行为。这里使用真实 application service 和内存版 <code>DocumentRepository</code>，不需要启动 Electron。</p>
+      <ul>
+        <li>创建节点后自动进入编辑状态。</li>
+        <li>编辑节点时按 <code>Tab</code>，会新建节点、自动连线、选中新节点。</li>
+        <li><code>Ctrl+L</code> 从节点拉线，落到节点或空白点都能生成正确 edge。</li>
+        <li>双击线插入固定点，拖动固定点后路径更新。</li>
+        <li>自动保存防抖生效，<code>Ctrl+S</code> 立即保存。</li>
+        <li>搜索当前白板节点后，视口能跳到结果并高亮。</li>
+      </ul>
+
+      <h3>端到端测试</h3>
+      <p>端到端测试使用 Electron + Playwright 覆盖最关键的真实流程。</p>
+      <ul>
+        <li>新建白板，双击建节点，输入文字，按 <code>Tab</code> 新建相连节点。</li>
+        <li>选中节点，按 <code>Ctrl+L</code>，点击另一个节点，生成默认曲线单向箭头。</li>
+        <li>双击线，出现固定点，拖动固定点，保存并重新打开后固定点仍在。</li>
+        <li>框选多个节点，整体移动，撤销后恢复原位。</li>
+        <li>保存 <code>.flb</code>，关闭，从最近文件打开后内容和视口恢复。</li>
+        <li><code>Ctrl+F</code> 搜索节点，命中节点居中并高亮。</li>
+      </ul>
+
+      <h3>性能验收</h3>
+      <ul>
+        <li>加载包含 5,000 个节点、8,000 条线的测试白板时，应用不能卡死。</li>
+        <li>平移和缩放时只渲染视口内对象，不能把全量节点挂进 DOM。</li>
+        <li>视口内约 300 个节点、800 条可见线时，拖动画布要保持接近流畅。</li>
+        <li>移动单个节点时，只重算相关连线和必要索引，不全量重算所有线。</li>
+        <li>保存大文件时不能阻塞当前交互到明显冻结。</li>
+      </ul>
+
+      <h3>人工手感验收</h3>
+      <p>自动测试之外，需要保留一张手感检查表。检查项包括：双击创建是否足够快，<code>Tab</code> 连续输入是否像思路自然延展，<code>Ctrl+L</code> 拉线是否有迟滞，线的固定点是否容易命中但平时不碍眼，多选和拖动画布是否不冲突。</p>
+      <p class="status">已确认</p>
+    </section>
+
+    <section id="milestones">
+      <h2>8. 第一版实施范围和里程碑</h2>
+      <p>第一版包含本文档中已经确认为 1.0 核心范围的功能。文档中标记为未来扩展或预留口子的能力不纳入第一版交付，例如图片节点、URL 节点、PDF 节点、分组、列表、云同步、多人协作、评论、分享、插件系统、<code>.flb</code> 包格式和内置附件。</p>
+      <p>第一版不是临时玩具 MVP，而是一个能真实使用的本地白板核心版。范围保持克制，但节点与连线的核心手感必须完整。</p>
+
+      <h3>M0：工程地基</h3>
+      <ul>
+        <li>搭建 Electron + React + TypeScript 工程。</li>
+        <li>配置测试、代码规范、构建流程和基础窗口。</li>
+        <li>建立 Domain、Application、Infrastructure、Presentation 的架构边界。</li>
+        <li>定义 <code>BoardState</code>、<code>.flb</code> schema、Command、History、Geometry 接口。</li>
+      </ul>
+
+      <h3>M1：本地文件与首页</h3>
+      <ul>
+        <li>实现最近白板列表、新建白板、打开 <code>.flb</code>、保存 <code>.flb</code>。</li>
+        <li>实现自动保存和 <code>Ctrl+S</code> 立即保存。</li>
+        <li>白板页显示保存状态：未保存、保存中、已保存。</li>
+      </ul>
+
+      <h3>M2：高性能画布骨架</h3>
+      <ul>
+        <li>实现世界坐标系、视口平移缩放、背景 Canvas。</li>
+        <li>实现 NodeDomLayer、EdgeCanvasLayer、InteractionOverlayLayer。</li>
+        <li>实现空间索引、视口裁剪、路径缓存和基础 LOD。</li>
+        <li>用假节点和假线压测，确认大白板不会一开始就卡住。</li>
+      </ul>
+
+      <h3>M3：文本节点核心交互</h3>
+      <ul>
+        <li>双击空白创建文本节点，创建后立即编辑。</li>
+        <li>节点支持单击选中、双击编辑、左键拖动。</li>
+        <li>节点默认自适应文字，手动 resize 后锁定尺寸。</li>
+        <li>支持框选、多选移动、撤销重做。</li>
+      </ul>
+
+      <h3>M4：蓝图式连线核心交互</h3>
+      <ul>
+        <li><code>Tab</code> 找附近空位创建相连节点。</li>
+        <li><code>Ctrl+L</code> 从节点拉线，点击节点连接，点击空白处落点。</li>
+        <li>默认线是蓝图曲线 + 单向箭头。</li>
+        <li>支持直线、曲线、圆角折线。</li>
+        <li>支持无箭头、单向箭头、双向箭头。</li>
+        <li>支持实线、虚线、颜色和粗细。</li>
+        <li>实现选中线浮动工具条。</li>
+        <li>实现双击线插入固定点，悬停或选中线时显示固定点，拖动固定点调整线路。</li>
+      </ul>
+
+      <h3>M5：搜索、设置与体验收口</h3>
+      <ul>
+        <li><code>Ctrl+F</code> 搜索当前白板文本节点，定位并高亮。</li>
+        <li>设置默认 <code>Ctrl + 滚轮</code> 缩放，可切换滚轮直接缩放。</li>
+        <li>支持线默认颜色和粗细设置。</li>
+        <li>补齐删除、复制粘贴、基础快捷键提示、关闭前保存检查。</li>
+      </ul>
+
+      <h3>M6：性能、稳定性与打包</h3>
+      <ul>
+        <li>构造 5,000 节点、8,000 线的测试白板。</li>
+        <li>检查视口裁剪、路径缓存、索引更新、拖动性能和保存大文件体验。</li>
+        <li>跑单元测试、集成测试、端到端测试和性能验收。</li>
+        <li>打包 Windows 桌面版。</li>
+      </ul>
+
+      <p class="note">第一版验收标准：能作为用户自己的日常画图笔记工具使用一周，不需要靠“以后会修”来忍受核心操作。</p>
+      <p class="status">已确认</p>
+    </section>
+
+    <section id="risks-validation">
+      <h2>9. 风险与关键技术验证</h2>
+      <p>第一版最主要的风险不是功能做不出来，而是功能做出来但手感不稳。因此以下风险需要在对应里程碑中主动验证，而不是等到最后收尾时再处理。</p>
+
+      <h3>Canvas 线层和 HTML 节点层坐标不同步</h3>
+      <p>节点在 DOM，线在 Canvas。如果 viewport transform、devicePixelRatio、滚动偏移处理不一致，会出现线端点和节点边缘对不齐。</p>
+      <p>验证方式：M2 阶段建立坐标测试页，放置几十个节点和线，在不同缩放比例、窗口尺寸和系统缩放下检查端点是否贴合。自动测试覆盖 world/screen 坐标互转。</p>
+
+      <h3>线命中测试不准</h3>
+      <p>线由 Canvas 绘制，不能依赖 DOM path 命中。双击线插固定点、悬停显示固定点、选中线工具条都依赖命中测试。命中区域太窄会让软件显得不听话，太宽又会误选。</p>
+      <p>验证方式：Geometry 层单测鼠标到直线、折线、贝塞尔曲线的距离。人工测试不同粗细、缩放比例下是否容易点中。命中半径应按屏幕像素保持稳定，视觉上约 8 到 12 像素。</p>
+
+      <h3>Tab 找空位算法太傻</h3>
+      <p>用户连续按 <code>Tab</code> 时，新节点如果乱跳、压住已有节点，或者总是挤到奇怪方向，会破坏“思路自然生长”的感觉。</p>
+      <p>验证方式：准备空白场景、右侧拥挤场景、四周都有节点场景、节点大小不同场景。第一版算法可以简单，但结果必须可预期：优先找近处，避开重叠，方向变化不要突然。</p>
+
+      <h3>中文输入法和快捷键冲突</h3>
+      <p>节点编辑是纯文本。中文输入法组合态下，如果 <code>Enter</code>、<code>Esc</code>、<code>Tab</code> 处理不当，可能打断输入。</p>
+      <p>验证方式：编辑层明确处理 <code>compositionstart</code> 和 <code>compositionend</code>，组合输入期间不触发白板快捷键。手测中文、英文、复制粘贴、多行文本和文本编辑撤销。</p>
+
+      <h3>自动保存导致卡顿或文件损坏</h3>
+      <p>大白板 JSON 可能较大。如果每次移动节点都保存，画布会卡。如果写文件中途崩溃，可能损坏原文件。</p>
+      <p>验证方式：保存层使用防抖和原子写入，先写临时文件，再替换正式文件。大文件保存走异步流程，保存状态可见。测试保存失败时不破坏旧文件。</p>
+
+      <h3>Command/History 粒度不合适</h3>
+      <p>拖动节点时，如果每移动 1 像素都是一个命令，撤销会失控；如果整个编辑过程合成不对，撤销又不符合用户预期。</p>
+      <p>验证方式：定义命令合并规则。拖动开始到拖动结束合成一个 <code>MoveNodesCommand</code>；文本编辑提交时形成一个 <code>EditNodeTextCommand</code>；连续样式切换按用户动作入栈。用单测覆盖撤销粒度。</p>
+
+      <h3>大图性能被 React 重渲染拖垮</h3>
+      <p>如果节点拖动、缩放、选中线时触发整张白板 React 重渲染，大图会抖动或卡顿。</p>
+      <p>验证方式：M2 开始建立性能基准，监控 DOM 节点数量、渲染帧时间、索引更新时间。节点组件 memo 化，只挂载视口内节点，连续交互通过 <code>requestAnimationFrame</code> 合批。</p>
+
+      <h3>文件格式以后扩展困难</h3>
+      <p>第一版是 JSON <code>.flb</code>，未来可能要图片节点、附件和同步。如果第一版字段写死，未来扩展成本会高。</p>
+      <p>验证方式：保留 <code>version</code>、<code>node.type</code>、<code>edge.pathType</code>、可选 <code>metadata</code>。Loader 必须能补默认值，Saver 输出干净结构。UI 临时状态不能混入文件。</p>
+
+      <h3>浮动工具条遮挡或跳动</h3>
+      <p>线工具条如果一直挡住节点，或者缩放时位置跳动，会影响编辑手感。</p>
+      <p>验证方式：工具条位置由选中对象 bounds 和 viewport 计算，保持屏幕尺寸，不随 zoom 缩小。靠近窗口边缘时自动换边。人工测试密集线条场景。</p>
+
+      <h3>本地桌面体验不完整</h3>
+      <p>如果最近文件失效、移动文件后打不开、关闭前没保存提示，用户会失去对本地文件软件的信任。</p>
+      <p>验证方式：最近文件打开前检查路径存在；文件不存在时提示移除；未命名白板关闭前询问保存；已命名白板依靠自动保存和最后一次保存状态提示。</p>
+      <p class="status">已确认</p>
+    </section>
+  </main>
+</body>
+</html>
