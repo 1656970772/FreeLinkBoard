@@ -10,6 +10,7 @@ const mockCanvasContext = {
   fill: vi.fn(),
   lineTo: vi.fn(),
   moveTo: vi.fn(),
+  quadraticCurveTo: vi.fn(),
   restore: vi.fn(),
   save: vi.fn(),
   scale: vi.fn(),
@@ -73,18 +74,22 @@ describe("EdgeCanvasLayer", () => {
     });
   });
 
-  it("draws straight, bezier, and rounded elbow paths from shared sampled geometry", () => {
+  it("draws straight and bezier paths from shared sampled geometry", () => {
     renderLayer([
       createEdge({ id: "straight", pathType: "straight" }),
-      createEdge({ id: "bezier", pathType: "bezier" }),
-      createEdge({ id: "elbow", pathType: "roundedElbow" })
+      createEdge({ id: "bezier", pathType: "bezier" })
     ]);
 
     expect(mockCanvasContext.moveTo).toHaveBeenCalledWith(20, 40);
     expect(mockCanvasContext.lineTo).toHaveBeenCalledWith(220, 100);
-    expect(mockCanvasContext.lineTo).toHaveBeenCalledWith(120, 40);
-    expect(mockCanvasContext.lineTo).toHaveBeenCalledWith(120, 100);
     expect(mockCanvasContext.lineTo).toHaveBeenCalledWith(41.12268518518518, 41.18055555555556);
+  });
+
+  it("rounds elbow corners with quadratic curves based on shared sampled geometry", () => {
+    renderLayer([createEdge({ id: "elbow", pathType: "roundedElbow" })]);
+
+    expect(mockCanvasContext.quadraticCurveTo).toHaveBeenCalledWith(120, 40, expect.any(Number), expect.any(Number));
+    expect(mockCanvasContext.quadraticCurveTo).toHaveBeenCalledWith(120, 100, expect.any(Number), expect.any(Number));
   });
 
   it("applies dashed stroke styling and widens selected edges", () => {

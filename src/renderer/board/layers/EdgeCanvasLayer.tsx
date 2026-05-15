@@ -93,13 +93,7 @@ export function EdgeCanvasLayer({
         continue;
       }
 
-      const first = worldToScreen(firstPoint, viewport);
-      context.moveTo(first.x, first.y);
-
-      for (const point of points.slice(1)) {
-        const screenPoint = worldToScreen(point, viewport);
-        context.lineTo(screenPoint.x, screenPoint.y);
-      }
+      drawEdgePath(context, edge, points, viewport);
 
       const isSelected = selectedEdgeIdSet.has(edge.id);
       const lineWidth = edge.stroke.width + (isSelected ? 2 : 0);
@@ -121,6 +115,50 @@ export function EdgeCanvasLayer({
       style={{ inset: 0, position: "absolute" }}
     />
   );
+}
+
+function drawEdgePath(
+  context: CanvasRenderingContext2D,
+  edge: BoardEdge,
+  points: Point[],
+  viewport: Viewport
+): void {
+  const screenPoints = points.map((point) => worldToScreen(point, viewport));
+  const first = screenPoints[0];
+
+  if (!first) {
+    return;
+  }
+
+  context.moveTo(first.x, first.y);
+
+  if (edge.pathType !== "roundedElbow" || screenPoints.length < 3) {
+    for (const point of screenPoints.slice(1)) {
+      context.lineTo(point.x, point.y);
+    }
+    return;
+  }
+
+  for (let index = 1; index < screenPoints.length - 1; index += 1) {
+    const previous = screenPoints[index - 1]!;
+    const corner = screenPoints[index]!;
+    const next = screenPoints[index + 1]!;
+    const radius = Math.min(16, distance(previous, corner) / 2, distance(corner, next) / 2);
+
+    if (radius <= 0) {
+      context.lineTo(corner.x, corner.y);
+      continue;
+    }
+
+    const cornerStart = pointToward(corner, previous, radius);
+    const cornerEnd = pointToward(corner, next, radius);
+
+    context.lineTo(cornerStart.x, cornerStart.y);
+    context.quadraticCurveTo(corner.x, corner.y, cornerEnd.x, cornerEnd.y);
+  }
+
+  const last = screenPoints[screenPoints.length - 1]!;
+  context.lineTo(last.x, last.y);
 }
 
 function drawArrowHeads(
@@ -186,4 +224,23 @@ function drawArrowHead(
   context.lineTo(right.x, right.y);
   context.closePath?.();
   context.fill?.();
+}
+
+function distance(first: Point, second: Point): number {
+  return Math.hypot(second.x - first.x, second.y - first.y);
+}
+
+function pointToward(from: Point, to: Point, amount: number): Point {
+  const segmentLength = distance(from, to);
+
+  if (segmentLength === 0) {
+    return from;
+  }
+
+  const ratio = amount / segmentLength;
+
+  return {
+    x: from.x + (to.x - from.x) * ratio,
+    y: from.y + (to.y - from.y) * ratio
+  };
 }
