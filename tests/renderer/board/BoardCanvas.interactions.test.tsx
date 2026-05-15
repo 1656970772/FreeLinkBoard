@@ -417,6 +417,16 @@ describe("BoardCanvas interactions", () => {
     expect(screen.getByTestId("interaction-overlay-layer").textContent).toContain("zoom 1.10");
   });
 
+  it("registers a non-passive wheel listener so browser page zoom stays blocked", () => {
+    const addEventListenerSpy = vi.spyOn(HTMLDivElement.prototype, "addEventListener");
+
+    render(<StoreConnectedBoard />);
+
+    expect(addEventListenerSpy).toHaveBeenCalledWith("wheel", expect.any(Function), { passive: false });
+
+    addEventListenerSpy.mockRestore();
+  });
+
   it("zooms around the mouse position instead of the viewport origin", () => {
     resetStore(
       createBoardWithNodes([

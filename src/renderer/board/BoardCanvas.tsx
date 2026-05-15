@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, MouseEvent, PointerEvent, ReactElement, RefObject, WheelEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, MouseEvent, PointerEvent, ReactElement, RefObject } from "react";
 import {
   CreateTextNodeCommand,
   MoveNodesCommand,
@@ -183,13 +183,9 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   };
 
   const getLocalScreenPoint = (
-    event: PointerEvent<HTMLDivElement> | MouseEvent<HTMLDivElement> | WheelEvent<HTMLDivElement>
+    event: PointerEvent<HTMLDivElement> | MouseEvent<HTMLDivElement>
   ): Point => {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    return {
-      x: event.clientX - bounds.left,
-      y: event.clientY - bounds.top
-    };
+    return getElementLocalScreenPoint(event.currentTarget, event.clientX, event.clientY);
   };
 
   const beginPan = (event: PointerEvent<HTMLDivElement>): void => {
@@ -429,15 +425,30 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     );
   };
 
-  const zoomFromWheel = (event: WheelEvent<HTMLDivElement>): void => {
+  const zoomFromWheel = useCallback((event: globalThis.WheelEvent): void => {
     if (!(event.ctrlKey || event.metaKey)) {
       return;
     }
 
     event.preventDefault();
+    const element = containerRef.current;
+    if (!element) {
+      return;
+    }
+
     const zoomFactor = event.deltaY < 0 ? 1.1 : 0.9;
-    zoomByScreenPoint(getLocalScreenPoint(event), zoomFactor);
-  };
+    zoomByScreenPoint(getElementLocalScreenPoint(element, event.clientX, event.clientY), zoomFactor);
+  }, [zoomByScreenPoint]);
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) {
+      return;
+    }
+
+    element.addEventListener("wheel", zoomFromWheel, { passive: false });
+    return () => element.removeEventListener("wheel", zoomFromWheel);
+  }, [zoomFromWheel]);
 
   return (
     <div
@@ -450,7 +461,6 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       onPointerUp={finishPointerInteraction}
       onPointerCancel={finishPointerInteraction}
       onDoubleClick={createNodeFromBlankDoubleClick}
-      onWheel={zoomFromWheel}
       style={{
         background: "#f3efe7",
         height: size ? size.height : "100%",
@@ -534,5 +544,14 @@ function screenDeltaToWorldDelta(delta: Point, zoom: number): Point {
   return {
     x: delta.x / zoom,
     y: delta.y / zoom
+  };
+}
+
+function getElementLocalScreenPoint(element: HTMLElement, clientX: number, clientY: number): Point {
+  const bounds = element.getBoundingClientRect();
+
+  return {
+    x: clientX - bounds.left,
+    y: clientY - bounds.top
   };
 }
