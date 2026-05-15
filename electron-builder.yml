@@ -1,0 +1,33 @@
+appId: com.freelinkboard.app
+productName: FreeLinkBoard
+asar: true
+npmRebuild: false
+
+directories:
+  output: dist
+
+files:
+  - from: out
+    to: out
+    filter:
+      - "**/*"
+  - package.json
+  - "!Memory/**"
+  - "!docs/**"
+  - "!tests/**"
+  - "!test-results/**"
+  - "!logs/**"
+  - "!dist/**"
+  - "!NUL.heapsnapshot"
+  - "!*.log"
+  - "!**/*.log"
+  - "!.worktrees/**"
+  - "!worktrees/**"
+  - "!.superpowers/**"
+  - "!node_modules/.vite/**"
+
+win:
+  target:
+    - target: dir
+      arch:
+        - x64
