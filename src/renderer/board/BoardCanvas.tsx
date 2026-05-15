@@ -113,6 +113,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   const panCaptureRef = useRef<HTMLElement | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
   const suppressNextNodeClickRef = useRef(false);
+  const suppressNextDoubleClickRef = useRef(false);
   const resizeStateRef = useRef<ResizeState | null>(null);
   const selectionBoxRef = useRef<SelectionBoxState | null>(null);
   const [selectionBox, setSelectionBox] = useState<Bounds | null>(null);
@@ -152,7 +153,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         return;
       }
 
-      if (event.code === "Tab" && !(event.ctrlKey || event.metaKey || event.altKey)) {
+      if (event.code === "Tab" && !(event.ctrlKey || event.metaKey || event.altKey || event.shiftKey)) {
         if (board.selection.nodeIds.length !== 1) {
           return;
         }
@@ -223,6 +224,11 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   }, [board.nodes, board.selection.nodeIds, redoBoardCommand, runBoardCommand, undoBoardCommand]);
 
   const createNodeFromBlankDoubleClick = (event: MouseEvent<HTMLDivElement>): void => {
+    if (suppressNextDoubleClickRef.current) {
+      suppressNextDoubleClickRef.current = false;
+      return;
+    }
+
     const bounds = event.currentTarget.getBoundingClientRect();
     const screenPoint = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
     const nodeId = `node_${nanoid()}`;
@@ -476,6 +482,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     setEditingNodeId(null);
     setEditingDraft(null);
     setLinkSourceNodeId(null);
+    suppressNextDoubleClick();
     runBoardCommand(
       new CreateEdgeCommand({
         clock: new Date().toISOString(),
@@ -487,9 +494,26 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   };
 
   const editNode = (nodeId: NodeId): void => {
+    if (suppressNextDoubleClickRef.current) {
+      suppressNextDoubleClickRef.current = false;
+      return;
+    }
+
+    if (linkSourceNodeId) {
+      createEdgeFromLinkSource({ type: "node", nodeId });
+      return;
+    }
+
     selectNodes([nodeId]);
     setEditingNodeId(nodeId);
     setEditingDraft({ nodeId, text: board.nodes[nodeId]?.text ?? "" });
+  };
+
+  const suppressNextDoubleClick = (): void => {
+    suppressNextDoubleClickRef.current = true;
+    window.setTimeout(() => {
+      suppressNextDoubleClickRef.current = false;
+    }, 0);
   };
 
   const updateNodeTextDraft = (nodeId: NodeId, text: string): void => {

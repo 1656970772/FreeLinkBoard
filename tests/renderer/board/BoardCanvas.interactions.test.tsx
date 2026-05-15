@@ -697,6 +697,20 @@ describe("BoardCanvas interactions", () => {
     expect(useDocumentStore.getState().currentBoard?.edges["edge_stable-node"]).toBeUndefined();
   });
 
+  it("does not create a linked node on Shift+Tab when one node is selected", () => {
+    resetStore({
+      ...createBoardWithNode(),
+      selection: { nodeIds: ["node_1"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+
+    fireEvent.keyDown(window, { code: "Tab", shiftKey: true });
+
+    const board = useDocumentStore.getState().currentBoard;
+    expect(Object.keys(board?.nodes ?? {})).toHaveLength(1);
+    expect(Object.keys(board?.edges ?? {})).toHaveLength(0);
+  });
+
   it("creates a node-to-node edge from Ctrl+L line mode when clicking another node", () => {
     resetStore({
       ...createBoardWithNodes([
@@ -752,6 +766,68 @@ describe("BoardCanvas interactions", () => {
       from: { type: "node", nodeId: "node_1" },
       to: { type: "point", point: { x: 420, y: 240 } }
     });
+  });
+
+  it("does not create a blank text node after a Ctrl+L blank double-click creates a point edge", () => {
+    resetStore({
+      ...createBoardWithNode(),
+      selection: { nodeIds: ["node_1"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+    const canvas = screen.getByTestId("board-canvas");
+
+    fireEvent.keyDown(window, { code: "KeyL", ctrlKey: true });
+    fireEvent.pointerDown(canvas, { button: 0, clientX: 420, clientY: 240, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { button: 0, clientX: 420, clientY: 240, pointerId: 1 });
+    fireEvent.doubleClick(canvas, { clientX: 420, clientY: 240 });
+
+    const board = useDocumentStore.getState().currentBoard;
+    expect(Object.keys(board?.nodes ?? {})).toHaveLength(1);
+    expect(board?.edges["edge_stable-node"]).toMatchObject({
+      from: { type: "node", nodeId: "node_1" },
+      to: { type: "point", point: { x: 420, y: 240 } }
+    });
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("does not edit a target node after a Ctrl+L target double-click creates an edge", () => {
+    resetStore({
+      ...createBoardWithNodes([
+        {
+          id: "node_1",
+          type: "text",
+          position: { x: 100, y: 120 },
+          size: defaultBoardSettings.textNodeSize,
+          sizing: "auto",
+          text: "Source",
+          style: defaultBoardSettings.textNodeStyle
+        },
+        {
+          id: "node_2",
+          type: "text",
+          position: { x: 320, y: 120 },
+          size: defaultBoardSettings.textNodeSize,
+          sizing: "auto",
+          text: "Target",
+          style: defaultBoardSettings.textNodeStyle
+        }
+      ]),
+      selection: { nodeIds: ["node_1"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+
+    fireEvent.keyDown(window, { code: "KeyL", ctrlKey: true });
+    fireEvent.doubleClick(screen.getByTestId("board-node-node_2"));
+
+    expect(useDocumentStore.getState().currentBoard?.edges["edge_stable-node"]).toMatchObject({
+      from: { type: "node", nodeId: "node_1" },
+      to: { type: "node", nodeId: "node_2" }
+    });
+    expect(useDocumentStore.getState().currentBoard?.selection).toEqual({
+      nodeIds: [],
+      edgeIds: ["edge_stable-node"]
+    });
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 
   it("cancels Ctrl+L line mode with Escape", () => {
