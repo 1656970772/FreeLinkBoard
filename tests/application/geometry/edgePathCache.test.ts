@@ -40,6 +40,28 @@ describe("edge path cache", () => {
     expect(resolveEdgeEndpoint({ type: "node", nodeId: "node-a" }, nodes)).toEqual({ x: 180, y: 240 });
   });
 
+  it("projects node path endpoints to the node boundary toward adjacent anchors", () => {
+    const path = createEdgePath(edge, nodes);
+
+    expect(path.points[0]).toEqual({ x: 260, y: 256 });
+    expect(path.points.at(-1)).toEqual({ x: 418.46153846153845, y: 160 });
+    expectPointToBeOnNodeBoundary(path.points[0]!, nodes["node-a"]!);
+    expectPointToBeOnNodeBoundary(path.points.at(-1)!, nodes["node-b"]!);
+  });
+
+  it("keeps point endpoints fixed while projecting node endpoints", () => {
+    const pointToNodeEdge = {
+      ...edge,
+      from: { type: "point", point: { x: 280, y: 260 } },
+      fixedPoints: []
+    } satisfies BoardEdge;
+    const path = createEdgePath(pointToNodeEdge, nodes);
+
+    expect(path.points[0]).toEqual({ x: 280, y: 260 });
+    expect(path.points.at(-1)).toEqual({ x: 418.46153846153845, y: 160 });
+    expectPointToBeOnNodeBoundary(path.points.at(-1)!, nodes["node-b"]!);
+  });
+
   it("resolves point endpoints directly", () => {
     expect(resolveEdgeEndpoint({ type: "point", point: { x: 12, y: 34 } }, nodes)).toEqual({ x: 12, y: 34 });
   });
@@ -52,11 +74,11 @@ describe("edge path cache", () => {
     expect(createEdgePath(edge, nodes)).toEqual({
       key: "edge-a|straight|node:node-a:100,200,160,80|node:node-b:400,100,120,60|fixed:280,260",
       points: [
-        { x: 180, y: 240 },
+        { x: 260, y: 256 },
         { x: 280, y: 260 },
-        { x: 460, y: 130 }
+        { x: 418.46153846153845, y: 160 }
       ],
-      bounds: { x: 148, y: 98, width: 344, height: 194 }
+      bounds: { x: 228, y: 128, width: 222.46153846153845, height: 164 }
     });
   });
 
@@ -101,7 +123,7 @@ describe("edge path cache", () => {
     const after = cache.get(edge, movedNodes);
 
     expect(after).not.toBe(before);
-    expect(after.points[0]).toEqual({ x: 200, y: 240 });
+    expect(after.points[0]).toEqual({ x: 280, y: 260 });
   });
 
   it("returns an unindexed empty path when an endpoint node is missing", () => {
@@ -119,3 +141,14 @@ describe("edge path cache", () => {
     expect(index.query({ x: -32, y: -32, width: 64, height: 64 })).toEqual([]);
   });
 });
+
+function expectPointToBeOnNodeBoundary(point: { x: number; y: number }, node: BoardNode): void {
+  const left = node.position.x;
+  const right = node.position.x + node.size.width;
+  const top = node.position.y;
+  const bottom = node.position.y + node.size.height;
+  const onVerticalEdge = (point.x === left || point.x === right) && point.y >= top && point.y <= bottom;
+  const onHorizontalEdge = (point.y === top || point.y === bottom) && point.x >= left && point.x <= right;
+
+  expect(onVerticalEdge || onHorizontalEdge).toBe(true);
+}

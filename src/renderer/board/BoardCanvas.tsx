@@ -172,14 +172,58 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     };
   }, [board.nodes, editingDraft]);
 
+  const createLinkedEditableTextNode = useCallback(
+    (sourceNodeId: NodeId): boolean => {
+      const sourceNode = board.nodes[sourceNodeId];
+      if (!sourceNode) {
+        return false;
+      }
+
+      const clock = new Date().toISOString();
+
+      if (editingDraft?.nodeId === sourceNodeId && sourceNode.text !== editingDraft.text) {
+        runBoardCommand(
+          new UpdateTextNodeCommand({
+            clock,
+            id: sourceNodeId,
+            text: editingDraft.text
+          })
+        );
+      }
+
+      const nodeId = `node_${nanoid()}`;
+      runBoardCommand(
+        new CreateLinkedTextNodeCommand({
+          clock,
+          edgeId: `edge_${nanoid()}`,
+          nodeId,
+          position: findLinkedNodePosition(sourceNode, board.nodes),
+          sourceNodeId,
+          text: ""
+        })
+      );
+      setLinkSourceNodeId(null);
+      setEditingNodeId(nodeId);
+      setEditingDraft({ nodeId, text: "" });
+      return true;
+    },
+    [board.nodes, editingDraft, runBoardCommand]
+  );
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
       const target = event.target;
+      const isPlainTab = event.code === "Tab" && !(event.ctrlKey || event.metaKey || event.altKey || event.shiftKey);
       if (
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
         (target instanceof HTMLElement && target.isContentEditable)
       ) {
+        if (target instanceof HTMLTextAreaElement && isPlainTab && editingNodeId) {
+          if (createLinkedEditableTextNode(editingNodeId)) {
+            event.preventDefault();
+          }
+        }
         return;
       }
 
@@ -188,7 +232,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         return;
       }
 
-      if (event.code === "Tab" && !(event.ctrlKey || event.metaKey || event.altKey || event.shiftKey)) {
+      if (isPlainTab) {
         if (board.selection.nodeIds.length !== 1) {
           return;
         }
@@ -204,20 +248,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         }
 
         event.preventDefault();
-        const nodeId = `node_${nanoid()}`;
-        runBoardCommand(
-          new CreateLinkedTextNodeCommand({
-            clock: new Date().toISOString(),
-            edgeId: `edge_${nanoid()}`,
-            nodeId,
-            position: findLinkedNodePosition(sourceNode, board.nodes),
-            sourceNodeId,
-            text: ""
-          })
-        );
-        setLinkSourceNodeId(null);
-        setEditingNodeId(nodeId);
-        setEditingDraft({ nodeId, text: "" });
+        createLinkedEditableTextNode(sourceNodeId);
         return;
       }
 
@@ -256,7 +287,14 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [board.nodes, board.selection.nodeIds, redoBoardCommand, runBoardCommand, undoBoardCommand]);
+  }, [
+    board.nodes,
+    board.selection.nodeIds,
+    createLinkedEditableTextNode,
+    editingNodeId,
+    redoBoardCommand,
+    undoBoardCommand
+  ]);
 
   const createNodeFromBlankDoubleClick = (event: MouseEvent<HTMLDivElement>): void => {
     if (isCanvasEdgeCreationFollowUpActive()) {

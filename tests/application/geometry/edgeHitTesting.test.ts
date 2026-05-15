@@ -43,11 +43,11 @@ function createEdge(pathType: BoardEdge["pathType"]): BoardEdge {
 describe("edge hit testing", () => {
   it("samples straight, bezier, and rounded elbow paths for hit testing", () => {
     expect(approximateEdgePathPoints(createEdge("straight"), nodes)).toEqual([
-      { x: 180, y: 128 },
-      { x: 500, y: 148 }
+      { x: 260, y: 133 },
+      { x: 420, y: 143 }
     ]);
     expect(approximateEdgePathPoints(createEdge("bezier"), nodes).length).toBeGreaterThan(8);
-    expect(approximateEdgePathPoints(createEdge("roundedElbow"), nodes)).toContainEqual({ x: 340, y: 128 });
+    expect(approximateEdgePathPoints(createEdge("roundedElbow"), nodes)).toContainEqual({ x: 340, y: 133 });
   });
 
   it("finds the nearest edge within screen tolerance", () => {
@@ -84,7 +84,7 @@ describe("edge hit testing", () => {
       fixedPoints: [{ x: 320, y: 180 }]
     };
 
-    const hit = hitTestEdges([edge], nodes, { x: 410, y: 180 }, { x: 0, y: 0, zoom: 1 }, 10);
+    const hit = hitTestEdges([edge], nodes, { x: 370, y: 175 }, { x: 0, y: 0, zoom: 1 }, 10);
 
     expect(hit?.insertionIndex).toBe(1);
   });

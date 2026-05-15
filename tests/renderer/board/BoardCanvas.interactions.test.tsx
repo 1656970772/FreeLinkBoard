@@ -687,6 +687,29 @@ describe("BoardCanvas interactions", () => {
     expect(screen.getByTestId("board-node-node_stable-node")).toBeTruthy();
   });
 
+  it("creates a linked editable text node on Tab while editing a node textarea", () => {
+    resetStore(createBoardWithNode());
+    render(<StoreConnectedBoard />);
+
+    fireEvent.doubleClick(screen.getByTestId("board-node-node_1"));
+    const editor = screen.getByRole("textbox");
+    fireEvent.change(editor, { target: { value: "Edited text" } });
+
+    const tabWasNotPrevented = fireEvent.keyDown(editor, { key: "Tab", code: "Tab" });
+
+    const board = useDocumentStore.getState().currentBoard;
+    expect(tabWasNotPrevented).toBe(false);
+    expect(board?.nodes["node_stable-node"]?.position).toEqual({ x: 320, y: 120 });
+    expect(board?.edges["edge_stable-node"]).toMatchObject({
+      from: { type: "node", nodeId: "node_1" },
+      to: { type: "node", nodeId: "node_stable-node" }
+    });
+    expect(board?.selection).toEqual({ nodeIds: ["node_stable-node"], edgeIds: [] });
+    expect(board?.nodes.node_1?.text).toBe("Edited text");
+    expect(screen.getByRole("textbox")).toHaveFocus();
+    expect(screen.getByRole("textbox")).toHaveValue("");
+  });
+
   it("creates a linked editable text node to the right on Tab when one node is selected", () => {
     resetStore({
       ...createBoardWithNode(),
@@ -817,8 +840,8 @@ describe("BoardCanvas interactions", () => {
     render(<StoreConnectedBoard />);
     const canvas = screen.getByTestId("board-canvas");
 
-    fireEvent.pointerDown(canvas, { button: 0, clientX: 240, clientY: 148, pointerId: 1 });
-    fireEvent.pointerUp(canvas, { button: 0, clientX: 240, clientY: 148, pointerId: 1 });
+    fireEvent.pointerDown(canvas, { button: 0, clientX: 290, clientY: 148, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { button: 0, clientX: 290, clientY: 148, pointerId: 1 });
 
     expect(useDocumentStore.getState().currentBoard?.selection).toEqual({ nodeIds: [], edgeIds: ["edge_1"] });
     expect(screen.getByTestId("edge-floating-toolbar")).toBeInTheDocument();
@@ -829,9 +852,9 @@ describe("BoardCanvas interactions", () => {
     resetStore(createBoardWithEdge());
     render(<StoreConnectedBoard />);
 
-    fireEvent.doubleClick(screen.getByTestId("board-canvas"), { clientX: 240, clientY: 148 });
+    fireEvent.doubleClick(screen.getByTestId("board-canvas"), { clientX: 290, clientY: 148 });
 
-    expect(useDocumentStore.getState().currentBoard?.edges.edge_1?.fixedPoints).toEqual([{ x: 240, y: 148 }]);
+    expect(useDocumentStore.getState().currentBoard?.edges.edge_1?.fixedPoints).toEqual([{ x: 290, y: 148 }]);
     expect(useDocumentStore.getState().currentBoard?.selection).toEqual({ nodeIds: [], edgeIds: ["edge_1"] });
     expect(screen.getByTestId("edge-fixed-point-edge_1-0")).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).toBeNull();
@@ -852,7 +875,7 @@ describe("BoardCanvas interactions", () => {
 
     expect(screen.queryByTestId("edge-fixed-point-edge_1-0")).toBeNull();
 
-    fireEvent.pointerMove(screen.getByTestId("board-canvas"), { clientX: 240, clientY: 164, pointerId: 1 });
+    fireEvent.pointerMove(screen.getByTestId("board-canvas"), { clientX: 255, clientY: 178, pointerId: 1 });
 
     expect(screen.getByTestId("edge-fixed-point-edge_1-0")).toBeInTheDocument();
     expect(screen.queryByTestId("edge-floating-toolbar")).toBeNull();

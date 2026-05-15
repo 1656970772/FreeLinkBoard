@@ -7,7 +7,11 @@ export type EdgePathSegmentSamples = {
 
 const BEZIER_SAMPLES = 12;
 
-export function resolveEdgeEndpoint(endpoint: EdgeEndpoint, nodes: Record<string, BoardNode>): Point | null {
+export function resolveEdgeEndpoint(
+  endpoint: EdgeEndpoint,
+  nodes: Record<string, BoardNode>,
+  adjacentAnchor?: Point
+): Point | null {
   if (endpoint.type === "point") {
     return endpoint.point;
   }
@@ -17,10 +21,12 @@ export function resolveEdgeEndpoint(endpoint: EdgeEndpoint, nodes: Record<string
     return null;
   }
 
-  return {
+  const center = {
     x: node.position.x + node.size.width / 2,
     y: node.position.y + node.size.height / 2
   };
+
+  return adjacentAnchor ? projectNodeEndpointToBoundary(node, center, adjacentAnchor) : center;
 }
 
 export function approximateEdgePathPoints(edge: BoardEdge, nodes: Record<string, BoardNode>): Point[] {
@@ -48,14 +54,46 @@ export function approximateEdgePathSegments(edge: BoardEdge, nodes: Record<strin
 }
 
 function resolveEdgeAnchors(edge: BoardEdge, nodes: Record<string, BoardNode>): Point[] | null {
-  const from = resolveEdgeEndpoint(edge.from, nodes);
-  const to = resolveEdgeEndpoint(edge.to, nodes);
+  const fromCenter = resolveEdgeEndpoint(edge.from, nodes);
+  const toCenter = resolveEdgeEndpoint(edge.to, nodes);
+
+  if (!fromCenter || !toCenter) {
+    return null;
+  }
+
+  const centerAnchors = [fromCenter, ...edge.fixedPoints, toCenter];
+  const from = resolveEdgeEndpoint(edge.from, nodes, centerAnchors[1]);
+  const to = resolveEdgeEndpoint(edge.to, nodes, centerAnchors[centerAnchors.length - 2]);
 
   if (!from || !to) {
     return null;
   }
 
   return [from, ...edge.fixedPoints, to];
+}
+
+function projectNodeEndpointToBoundary(node: BoardNode, center: Point, adjacentAnchor: Point): Point {
+  const dx = adjacentAnchor.x - center.x;
+  const dy = adjacentAnchor.y - center.y;
+
+  if (dx === 0 && dy === 0) {
+    return center;
+  }
+
+  const halfWidth = node.size.width / 2;
+  const halfHeight = node.size.height / 2;
+  const scaleX = dx === 0 ? Number.POSITIVE_INFINITY : halfWidth / Math.abs(dx);
+  const scaleY = dy === 0 ? Number.POSITIVE_INFINITY : halfHeight / Math.abs(dy);
+  const scale = Math.min(scaleX, scaleY);
+
+  if (!Number.isFinite(scale)) {
+    return center;
+  }
+
+  return {
+    x: center.x + dx * scale,
+    y: center.y + dy * scale
+  };
 }
 
 function createStraightSegments(anchors: Point[]): EdgePathSegmentSamples[] {
