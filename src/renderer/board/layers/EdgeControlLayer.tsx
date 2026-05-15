@@ -38,6 +38,7 @@ export function EdgeControlLayer({
   return (
     <div
       data-testid="edge-floating-toolbar"
+      onDoubleClick={(event) => event.stopPropagation()}
       onPointerDown={stopCanvasPointerHandling}
       onPointerMove={stopCanvasPointerHandling}
       onPointerUp={stopCanvasPointerHandling}
@@ -109,9 +110,14 @@ export function EdgeControlLayer({
         data-testid="edge-toolbar-width"
         max={12}
         min={1}
-        onChange={(event: ChangeEvent<HTMLInputElement>) =>
-          onEdgeStyleChange({ stroke: { width: Number(event.target.value) } })
-        }
+        onChange={(event: ChangeEvent<HTMLInputElement>) => {
+          const width = clampEdgeWidth(event.target.value);
+          if (width === null) {
+            return;
+          }
+
+          onEdgeStyleChange({ stroke: { width } });
+        }}
         style={{ ...controlStyle, width: 48 }}
         type="number"
         value={edge.stroke.width}
@@ -146,4 +152,17 @@ function getToolbarAnchor(
     x: screenPoint.x,
     y: Math.max(8, screenPoint.y - 12)
   };
+}
+
+function clampEdgeWidth(rawValue: string): number | null {
+  if (rawValue.trim() === "") {
+    return null;
+  }
+
+  const value = Number(rawValue);
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  return Math.min(12, Math.max(1, value));
 }

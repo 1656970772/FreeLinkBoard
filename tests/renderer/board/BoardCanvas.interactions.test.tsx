@@ -846,6 +846,43 @@ describe("BoardCanvas interactions", () => {
     expect(useDocumentStore.getState().saveStatus).toBe("dirty");
   });
 
+  it("keeps toolbar double-clicks from creating blank nodes or clearing the selected edge", () => {
+    resetStore({
+      ...createBoardWithEdge(),
+      selection: { nodeIds: [], edgeIds: ["edge_1"] }
+    });
+    render(<StoreConnectedBoard />);
+    const initialNodeCount = Object.keys(useDocumentStore.getState().currentBoard?.nodes ?? {}).length;
+
+    fireEvent.doubleClick(screen.getByTestId("edge-toolbar-width"), { clientX: 240, clientY: 120 });
+    fireEvent.doubleClick(screen.getByTestId("edge-floating-toolbar"), { clientX: 240, clientY: 120 });
+
+    expect(Object.keys(useDocumentStore.getState().currentBoard?.nodes ?? {})).toHaveLength(initialNodeCount);
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(useDocumentStore.getState().currentBoard?.selection).toEqual({ nodeIds: [], edgeIds: ["edge_1"] });
+  });
+
+  it("clamps selected edge width edits to the toolbar range", () => {
+    resetStore({
+      ...createBoardWithEdge(),
+      selection: { nodeIds: [], edgeIds: ["edge_1"] }
+    });
+    render(<StoreConnectedBoard />);
+    const widthInput = screen.getByTestId("edge-toolbar-width");
+
+    fireEvent.change(widthInput, { target: { value: "" } });
+
+    expect(useDocumentStore.getState().currentBoard?.edges.edge_1?.stroke.width).toBe(2);
+
+    fireEvent.change(widthInput, { target: { value: "0" } });
+
+    expect(useDocumentStore.getState().currentBoard?.edges.edge_1?.stroke.width).toBe(1);
+
+    fireEvent.change(widthInput, { target: { value: "99" } });
+
+    expect(useDocumentStore.getState().currentBoard?.edges.edge_1?.stroke.width).toBe(12);
+  });
+
   it("keeps Ctrl+L line mode ahead of edge hit selection on blank clicks", () => {
     resetStore({
       ...createBoardWithEdge(),
