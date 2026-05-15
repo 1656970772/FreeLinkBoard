@@ -14,6 +14,7 @@
     "test:e2e": "playwright test",
     "package:win": "npm run build && electron-builder --config electron-builder.yml --win --dir",
     "perf:large-board": "vitest run tests/application/performance/largeBoardMetrics.test.ts",
+    "release:check": "npm run typecheck && npm test && npm run build && npm run perf:large-board && npm run test:e2e && npm run package:win",
     "test:watch": "vitest",
     "lint": "tsc -b --noEmit"
   },
