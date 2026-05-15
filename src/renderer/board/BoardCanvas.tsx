@@ -7,16 +7,19 @@ import {
   CreateTextNodeCommand,
   MoveNodesCommand,
   ResizeNodeCommand,
+  UpdateEdgeStyleCommand,
   UpdateTextNodeCommand,
   estimateTextNodeSize
 } from "../../application/commands/boardInteractionCommands";
 import { boundsIntersect } from "../../application/geometry/bounds";
 import type { Bounds } from "../../application/geometry/bounds";
+import { hitTestEdges } from "../../application/geometry/edgeHitTesting";
 import { findLinkedNodePosition } from "../../application/geometry/linkedNodePlacement";
 import { screenToWorld } from "../../application/geometry/viewportTransform";
-import type { BoardNode, BoardState, EdgeEndpoint, NodeId, Point, Size } from "../../domain/board/types";
+import type { BoardEdge, BoardNode, BoardState, EdgeEndpoint, NodeId, Point, Size } from "../../domain/board/types";
 import { useDocumentStore } from "../stores/documentStore";
 import { GridCanvasLayer } from "./layers/GridCanvasLayer";
+import { EdgeControlLayer, type EdgeStylePatch } from "./layers/EdgeControlLayer";
 import { EdgeCanvasLayer } from "./layers/EdgeCanvasLayer";
 import { InteractionOverlayLayer } from "./layers/InteractionOverlayLayer";
 import { NodeDomLayer } from "./layers/NodeDomLayer";
@@ -111,6 +114,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   const { panByScreenDelta, viewport, zoomByScreenPoint } = useCanvasViewport(board.viewport);
   const runBoardCommand = useDocumentStore((state) => state.runBoardCommand);
   const selectNodes = useDocumentStore((state) => state.selectNodes);
+  const selectEdges = useDocumentStore((state) => state.selectEdges);
   const undoBoardCommand = useDocumentStore((state) => state.undoBoardCommand);
   const redoBoardCommand = useDocumentStore((state) => state.redoBoardCommand);
   const [visibleEdgeCount, setVisibleEdgeCount] = useState(0);
@@ -129,6 +133,13 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   const [linkSourceNodeId, setLinkSourceNodeId] = useState<NodeId | null>(null);
   const nodes = useMemo(() => Object.values(board.nodes), [board.nodes]);
   const edges = useMemo(() => Object.values(board.edges), [board.edges]);
+  const selectedEdge = useMemo((): BoardEdge | null => {
+    if (board.selection.edgeIds.length !== 1) {
+      return null;
+    }
+
+    return board.edges[board.selection.edgeIds[0]!] ?? null;
+  }, [board.edges, board.selection.edgeIds]);
   const nodeSizeOverrides = useMemo((): Partial<Record<NodeId, Size>> | undefined => {
     if (!editingDraft) {
       return undefined;
@@ -451,6 +462,12 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         return;
       }
 
+      const edgeHit = hitTestEdges(edges, board.nodes, endScreenPoint, viewport);
+      if (edgeHit) {
+        selectEdges([edgeHit.edgeId]);
+        return;
+      }
+
       selectNodes([]);
       return;
     }
@@ -576,6 +593,20 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     );
   };
 
+  const updateSelectedEdgeStyle = (patch: EdgeStylePatch): void => {
+    if (!selectedEdge) {
+      return;
+    }
+
+    runBoardCommand(
+      new UpdateEdgeStyleCommand({
+        clock: new Date().toISOString(),
+        edgeId: selectedEdge.id,
+        patch
+      })
+    );
+  };
+
   const zoomFromWheel = useCallback((event: globalThis.WheelEvent): void => {
     if (!(event.ctrlKey || event.metaKey)) {
       return;
@@ -629,6 +660,12 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         onVisibleEdgeCountChange={setVisibleEdgeCount}
         selectedEdgeIds={board.selection.edgeIds}
         size={canvasSize}
+        viewport={viewport}
+      />
+      <EdgeControlLayer
+        edge={selectedEdge}
+        nodes={board.nodes}
+        onEdgeStyleChange={updateSelectedEdgeStyle}
         viewport={viewport}
       />
       <NodeDomLayer

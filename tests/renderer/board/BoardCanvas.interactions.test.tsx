@@ -12,9 +12,12 @@ vi.mock("nanoid", () => ({
 
 const mockCanvasContext = {
   beginPath: vi.fn(),
+  closePath: vi.fn(),
   clearRect: vi.fn(),
+  fill: vi.fn(),
   lineTo: vi.fn(),
   moveTo: vi.fn(),
+  quadraticCurveTo: vi.fn(),
   restore: vi.fn(),
   save: vi.fn(),
   scale: vi.fn(),
@@ -92,6 +95,44 @@ function createBoardWithNodes(nodes: BoardState["nodes"][string][]): BoardState 
   return {
     ...board,
     nodes: Object.fromEntries(nodes.map((node) => [node.id, node]))
+  };
+}
+
+function createBoardWithEdge(): BoardState {
+  const board = createBoardWithNodes([
+    {
+      id: "node_1",
+      type: "text",
+      position: { x: 100, y: 120 },
+      size: defaultBoardSettings.textNodeSize,
+      sizing: "auto",
+      text: "Source",
+      style: defaultBoardSettings.textNodeStyle
+    },
+    {
+      id: "node_2",
+      type: "text",
+      position: { x: 320, y: 120 },
+      size: defaultBoardSettings.textNodeSize,
+      sizing: "auto",
+      text: "Target",
+      style: defaultBoardSettings.textNodeStyle
+    }
+  ]);
+
+  return {
+    ...board,
+    edges: {
+      edge_1: {
+        id: "edge_1",
+        from: { type: "node", nodeId: "node_1" },
+        to: { type: "node", nodeId: "node_2" },
+        fixedPoints: [],
+        pathType: "straight",
+        arrow: "end",
+        stroke: { color: "#2f6f6a", width: 2, dash: "solid" }
+      }
+    }
   };
 }
 
@@ -765,6 +806,65 @@ describe("BoardCanvas interactions", () => {
     expect(useDocumentStore.getState().currentBoard?.edges["edge_stable-node"]).toMatchObject({
       from: { type: "node", nodeId: "node_1" },
       to: { type: "point", point: { x: 420, y: 240 } }
+    });
+  });
+
+  it("selects an edge by clicking near its path and shows the floating toolbar", () => {
+    resetStore({
+      ...createBoardWithEdge(),
+      selection: { nodeIds: ["node_1"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+    const canvas = screen.getByTestId("board-canvas");
+
+    fireEvent.pointerDown(canvas, { button: 0, clientX: 240, clientY: 148, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { button: 0, clientX: 240, clientY: 148, pointerId: 1 });
+
+    expect(useDocumentStore.getState().currentBoard?.selection).toEqual({ nodeIds: [], edgeIds: ["edge_1"] });
+    expect(screen.getByTestId("edge-floating-toolbar")).toBeInTheDocument();
+    expect(useDocumentStore.getState().saveStatus).toBe("saved");
+  });
+
+  it("updates the selected edge style from the floating toolbar and marks the board dirty", () => {
+    resetStore({
+      ...createBoardWithEdge(),
+      selection: { nodeIds: [], edgeIds: ["edge_1"] }
+    });
+    render(<StoreConnectedBoard />);
+
+    fireEvent.change(screen.getByTestId("edge-toolbar-path-type"), { target: { value: "roundedElbow" } });
+    fireEvent.change(screen.getByTestId("edge-toolbar-arrow"), { target: { value: "both" } });
+    fireEvent.change(screen.getByTestId("edge-toolbar-dash"), { target: { value: "dashed" } });
+    fireEvent.change(screen.getByTestId("edge-toolbar-color"), { target: { value: "#ff3366" } });
+    fireEvent.change(screen.getByTestId("edge-toolbar-width"), { target: { value: "5" } });
+
+    expect(useDocumentStore.getState().currentBoard?.edges.edge_1).toMatchObject({
+      pathType: "roundedElbow",
+      arrow: "both",
+      stroke: { color: "#ff3366", width: 5, dash: "dashed" }
+    });
+    expect(useDocumentStore.getState().saveStatus).toBe("dirty");
+  });
+
+  it("keeps Ctrl+L line mode ahead of edge hit selection on blank clicks", () => {
+    resetStore({
+      ...createBoardWithEdge(),
+      selection: { nodeIds: ["node_1"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+    const canvas = screen.getByTestId("board-canvas");
+
+    fireEvent.keyDown(window, { code: "KeyL", ctrlKey: true });
+    fireEvent.pointerDown(canvas, { button: 0, clientX: 240, clientY: 148, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { button: 0, clientX: 240, clientY: 148, pointerId: 1 });
+
+    expect(useDocumentStore.getState().currentBoard?.selection).toEqual({
+      nodeIds: [],
+      edgeIds: ["edge_stable-node"]
+    });
+    expect(useDocumentStore.getState().currentBoard?.edges["edge_stable-node"]).toMatchObject({
+      from: { type: "node", nodeId: "node_1" },
+      to: { type: "point", point: { x: 240, y: 148 } }
     });
   });
 
