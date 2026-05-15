@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoardCommand } from "../../../src/application/commands/BoardCommand";
-import { createEmptyBoardState } from "../../../src/domain/board/defaults";
-import type { BoardState } from "../../../src/domain/board/types";
+import { createEmptyBoardState, defaultBoardSettings } from "../../../src/domain/board/defaults";
+import type { BoardNode, BoardState } from "../../../src/domain/board/types";
 import { useDocumentStore } from "../../../src/renderer/stores/documentStore";
 import type { ElectronFileApi } from "../../../src/shared/electronApi";
 
@@ -65,6 +65,39 @@ class NoOpBoardCommand implements BoardCommand {
   undo(state: BoardState): BoardState {
     return state;
   }
+}
+
+function createTextNode(id: string, x: number, y: number): BoardNode {
+  return {
+    id,
+    type: "text",
+    position: { x, y },
+    size: defaultBoardSettings.textNodeSize,
+    sizing: "auto",
+    text: id,
+    style: defaultBoardSettings.textNodeStyle
+  };
+}
+
+function createBoardWithEdge(edgeId: string): BoardState {
+  const board = createEmptyBoardState("board-1", "2026-05-15T00:00:00.000Z");
+
+  return {
+    ...board,
+    nodes: {
+      source: createTextNode("source", 100, 100),
+      target: createTextNode("target", 360, 100)
+    },
+    edges: {
+      [edgeId]: {
+        id: edgeId,
+        from: { type: "node", nodeId: "source" },
+        to: { type: "node", nodeId: "target" },
+        fixedPoints: [],
+        ...defaultBoardSettings.edgeStyle
+      }
+    }
+  };
 }
 
 describe("documentStore", () => {
@@ -182,6 +215,59 @@ describe("documentStore", () => {
 
     expect(useDocumentStore.getState().currentBoard?.selection.nodeIds).toEqual(["marker"]);
     expect(useDocumentStore.getState().saveStatus).toBe("saved");
+  });
+
+  it("selects edges without marking the board dirty", () => {
+    useDocumentStore.setState({
+      currentBoard: createBoardWithEdge("edge-1"),
+      saveStatus: "saved"
+    });
+
+    useDocumentStore.getState().selectEdges(["edge-1"]);
+
+    expect(useDocumentStore.getState().currentBoard?.selection).toEqual({
+      nodeIds: [],
+      edgeIds: ["edge-1"]
+    });
+    expect(useDocumentStore.getState().saveStatus).toBe("saved");
+  });
+
+  it("selects nodes and edges together without creating history", () => {
+    useDocumentStore.setState({
+      currentBoard: createBoardWithEdge("edge-1"),
+      saveStatus: "saved"
+    });
+
+    useDocumentStore.getState().selectBoardItems({ nodeIds: ["source"], edgeIds: ["edge-1"] });
+    useDocumentStore.getState().undoBoardCommand();
+
+    expect(useDocumentStore.getState().currentBoard?.selection).toEqual({
+      nodeIds: ["source"],
+      edgeIds: ["edge-1"]
+    });
+    expect(useDocumentStore.getState().saveStatus).toBe("saved");
+  });
+
+  it("does not preserve old redo history after selection on a replaced board", () => {
+    useDocumentStore.setState({
+      currentBoard: createEmptyBoardState("board-1", "2026-05-15T02:00:00.000Z"),
+      saveStatus: "saved"
+    });
+    useDocumentStore.getState().runBoardCommand(new AddMarkerNodeCommand());
+    useDocumentStore.getState().undoBoardCommand();
+
+    useDocumentStore.setState({
+      currentBoard: createBoardWithEdge("edge-1"),
+      saveStatus: "saved"
+    });
+    useDocumentStore.getState().selectBoardItems({ nodeIds: ["source"], edgeIds: ["edge-1"] });
+    useDocumentStore.getState().redoBoardCommand();
+
+    expect(useDocumentStore.getState().currentBoard?.nodes.marker).toBeUndefined();
+    expect(useDocumentStore.getState().currentBoard?.selection).toEqual({
+      nodeIds: ["source"],
+      edgeIds: ["edge-1"]
+    });
   });
 
   it("resets command history when creating a new board", () => {

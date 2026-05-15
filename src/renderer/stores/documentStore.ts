@@ -3,7 +3,7 @@ import { create } from "zustand";
 import type { BoardCommand } from "../../application/commands/BoardCommand";
 import { HistoryService } from "../../application/commands/HistoryService";
 import { createEmptyBoardState } from "../../domain/board/defaults";
-import type { BoardState } from "../../domain/board/types";
+import type { BoardSelection, BoardState } from "../../domain/board/types";
 import type { ElectronFileApi, RecentFile } from "../../shared/electronApi";
 
 type SaveStatus = "saved" | "saving" | "dirty" | "unsaved";
@@ -23,6 +23,8 @@ type DocumentStore = {
   undoBoardCommand(): void;
   redoBoardCommand(): void;
   selectNodes(nodeIds: string[]): void;
+  selectEdges(edgeIds: string[]): void;
+  selectBoardItems(selection: BoardSelection): void;
 };
 
 const fileApiUnavailableMessage = "Electron file API is unavailable.";
@@ -175,14 +177,25 @@ export const useDocumentStore = create<DocumentStore>((set, get) => ({
   },
 
   selectNodes(nodeIds: string[]) {
+    get().selectBoardItems({ nodeIds, edgeIds: [] });
+  },
+
+  selectEdges(edgeIds: string[]) {
+    get().selectBoardItems({ nodeIds: [], edgeIds });
+  },
+
+  selectBoardItems(selection: BoardSelection) {
     const currentBoard = get().currentBoard;
     if (!currentBoard) return;
 
     const nextBoard = {
       ...currentBoard,
-      selection: { nodeIds, edgeIds: [] }
+      selection: {
+        nodeIds: [...selection.nodeIds],
+        edgeIds: [...selection.edgeIds]
+      }
     };
-    boardHistory?.replaceCurrent(nextBoard);
+    ensureHistory(currentBoard).replaceCurrent(nextBoard);
     set({ currentBoard: nextBoard });
   }
 }));

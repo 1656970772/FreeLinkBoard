@@ -1,5 +1,15 @@
 import { defaultBoardSettings } from "../../domain/board/defaults";
-import type { BoardNode, BoardSelection, BoardState, NodeId, Point, Size } from "../../domain/board/types";
+import type {
+  BoardEdge,
+  BoardNode,
+  BoardSelection,
+  BoardState,
+  EdgeEndpoint,
+  EdgeId,
+  NodeId,
+  Point,
+  Size
+} from "../../domain/board/types";
 import type { BoardCommand } from "./BoardCommand";
 
 const TEXT_NODE_VERTICAL_PADDING = 20;
@@ -84,6 +94,135 @@ export class CreateTextNodeCommand implements BoardCommand {
       nodes: this.previousNode
         ? { ...remainingNodes, [this.previousNode.id]: this.previousNode }
         : remainingNodes,
+      selection: this.previousSelection ?? state.selection,
+      updatedAt: this.previousUpdatedAt ?? state.updatedAt
+    };
+  }
+}
+
+export type CreateLinkedTextNodeCommandInput = {
+  edgeId: EdgeId;
+  nodeId: NodeId;
+  sourceNodeId: NodeId;
+  position: Point;
+  text: string;
+  clock: string;
+};
+
+export class CreateLinkedTextNodeCommand implements BoardCommand {
+  readonly name = "create-linked-text-node";
+
+  private previousNode: BoardNode | undefined;
+  private previousEdge: BoardEdge | undefined;
+  private previousSelection: BoardSelection | undefined;
+  private previousUpdatedAt: string | undefined;
+
+  constructor(private readonly input: CreateLinkedTextNodeCommandInput) {}
+
+  execute(state: BoardState): BoardState {
+    const sourceNode = state.nodes[this.input.sourceNodeId];
+    if (!sourceNode) {
+      return state;
+    }
+
+    this.previousNode = state.nodes[this.input.nodeId];
+    this.previousEdge = state.edges[this.input.edgeId];
+    this.previousSelection = cloneSelection(state.selection);
+    this.previousUpdatedAt = state.updatedAt;
+
+    const node: BoardNode = {
+      id: this.input.nodeId,
+      type: "text",
+      position: { ...this.input.position },
+      size: estimateTextNodeSize(this.input.text),
+      sizing: "auto",
+      text: this.input.text,
+      style: { ...defaultBoardSettings.textNodeStyle }
+    };
+    const edge = createDefaultEdge(
+      this.input.edgeId,
+      { type: "node", nodeId: this.input.sourceNodeId },
+      { type: "node", nodeId: this.input.nodeId }
+    );
+
+    return {
+      ...state,
+      nodes: {
+        ...state.nodes,
+        [node.id]: node
+      },
+      edges: {
+        ...state.edges,
+        [edge.id]: edge
+      },
+      selection: { nodeIds: [node.id], edgeIds: [] },
+      updatedAt: this.input.clock
+    };
+  }
+
+  undo(state: BoardState): BoardState {
+    const { [this.input.nodeId]: removedNode, ...remainingNodes } = state.nodes;
+    const { [this.input.edgeId]: removedEdge, ...remainingEdges } = state.edges;
+    void removedNode;
+    void removedEdge;
+
+    return {
+      ...state,
+      nodes: this.previousNode
+        ? { ...remainingNodes, [this.previousNode.id]: this.previousNode }
+        : remainingNodes,
+      edges: this.previousEdge
+        ? { ...remainingEdges, [this.previousEdge.id]: this.previousEdge }
+        : remainingEdges,
+      selection: this.previousSelection ?? state.selection,
+      updatedAt: this.previousUpdatedAt ?? state.updatedAt
+    };
+  }
+}
+
+export type CreateEdgeCommandInput = {
+  edgeId: EdgeId;
+  from: EdgeEndpoint;
+  to: EdgeEndpoint;
+  clock: string;
+};
+
+export class CreateEdgeCommand implements BoardCommand {
+  readonly name = "create-edge";
+
+  private previousEdge: BoardEdge | undefined;
+  private previousSelection: BoardSelection | undefined;
+  private previousUpdatedAt: string | undefined;
+
+  constructor(private readonly input: CreateEdgeCommandInput) {}
+
+  execute(state: BoardState): BoardState {
+    this.previousEdge = state.edges[this.input.edgeId];
+    this.previousSelection = cloneSelection(state.selection);
+    this.previousUpdatedAt = state.updatedAt;
+
+    const edge = createDefaultEdge(this.input.edgeId, this.input.from, this.input.to);
+
+    return {
+      ...state,
+      edges: {
+        ...state.edges,
+        [edge.id]: edge
+      },
+      selection: { nodeIds: [], edgeIds: [edge.id] },
+      updatedAt: this.input.clock
+    };
+  }
+
+  undo(state: BoardState): BoardState {
+    const { [this.input.edgeId]: removedEdge, ...remainingEdges } = state.edges;
+    void removedEdge;
+
+    return {
+      ...state,
+      edges: this.previousEdge
+        ? { ...remainingEdges, [this.previousEdge.id]: this.previousEdge }
+        : remainingEdges,
       selection: this.previousSelection ?? state.selection,
       updatedAt: this.previousUpdatedAt ?? state.updatedAt
     };
@@ -196,6 +335,176 @@ export class ResizeNodeCommand implements BoardCommand {
   }
 }
 
+export type UpdateEdgeStyleCommandInput = {
+  edgeId: EdgeId;
+  patch: Partial<Pick<BoardEdge, "pathType" | "arrow">> & {
+    stroke?: Partial<BoardEdge["stroke"]>;
+  };
+  clock: string;
+};
+
+export class UpdateEdgeStyleCommand implements BoardCommand {
+  readonly name = "update-edge-style";
+
+  private previousEdge: BoardEdge | undefined;
+  private previousUpdatedAt: string | undefined;
+
+  constructor(private readonly input: UpdateEdgeStyleCommandInput) {}
+
+  execute(state: BoardState): BoardState {
+    const edge = state.edges[this.input.edgeId];
+    if (!edge) {
+      return state;
+    }
+
+    this.previousEdge = edge;
+    this.previousUpdatedAt = state.updatedAt;
+
+    return {
+      ...state,
+      edges: {
+        ...state.edges,
+        [edge.id]: {
+          ...edge,
+          ...this.input.patch,
+          stroke: {
+            ...edge.stroke,
+            ...(this.input.patch.stroke ?? {})
+          }
+        }
+      },
+      updatedAt: this.input.clock
+    };
+  }
+
+  undo(state: BoardState): BoardState {
+    if (!this.previousEdge) {
+      return state;
+    }
+
+    return {
+      ...state,
+      edges: {
+        ...state.edges,
+        [this.previousEdge.id]: this.previousEdge
+      },
+      updatedAt: this.previousUpdatedAt ?? state.updatedAt
+    };
+  }
+}
+
+export type InsertEdgeFixedPointCommandInput = {
+  edgeId: EdgeId;
+  index: number;
+  point: Point;
+  clock: string;
+};
+
+export class InsertEdgeFixedPointCommand implements BoardCommand {
+  readonly name = "insert-edge-fixed-point";
+
+  private previousEdge: BoardEdge | undefined;
+  private previousUpdatedAt: string | undefined;
+
+  constructor(private readonly input: InsertEdgeFixedPointCommandInput) {}
+
+  execute(state: BoardState): BoardState {
+    const edge = state.edges[this.input.edgeId];
+    if (!edge) {
+      return state;
+    }
+
+    this.previousEdge = edge;
+    this.previousUpdatedAt = state.updatedAt;
+    const index = clamp(this.input.index, 0, edge.fixedPoints.length);
+    const fixedPoints = [...edge.fixedPoints];
+    fixedPoints.splice(index, 0, { ...this.input.point });
+
+    return {
+      ...state,
+      edges: {
+        ...state.edges,
+        [edge.id]: {
+          ...edge,
+          fixedPoints
+        }
+      },
+      updatedAt: this.input.clock
+    };
+  }
+
+  undo(state: BoardState): BoardState {
+    if (!this.previousEdge) {
+      return state;
+    }
+
+    return {
+      ...state,
+      edges: {
+        ...state.edges,
+        [this.previousEdge.id]: this.previousEdge
+      },
+      updatedAt: this.previousUpdatedAt ?? state.updatedAt
+    };
+  }
+}
+
+export type MoveEdgeFixedPointCommandInput = {
+  edgeId: EdgeId;
+  index: number;
+  point: Point;
+  clock: string;
+};
+
+export class MoveEdgeFixedPointCommand implements BoardCommand {
+  readonly name = "move-edge-fixed-point";
+
+  private previousEdge: BoardEdge | undefined;
+  private previousUpdatedAt: string | undefined;
+
+  constructor(private readonly input: MoveEdgeFixedPointCommandInput) {}
+
+  execute(state: BoardState): BoardState {
+    const edge = state.edges[this.input.edgeId];
+    if (!edge || !edge.fixedPoints[this.input.index]) {
+      return state;
+    }
+
+    this.previousEdge = edge;
+    this.previousUpdatedAt = state.updatedAt;
+    const fixedPoints = edge.fixedPoints.map((point, index) =>
+      index === this.input.index ? { ...this.input.point } : point
+    );
+
+    return {
+      ...state,
+      edges: {
+        ...state.edges,
+        [edge.id]: {
+          ...edge,
+          fixedPoints
+        }
+      },
+      updatedAt: this.input.clock
+    };
+  }
+
+  undo(state: BoardState): BoardState {
+    if (!this.previousEdge) {
+      return state;
+    }
+
+    return {
+      ...state,
+      edges: {
+        ...state.edges,
+        [this.previousEdge.id]: this.previousEdge
+      },
+      updatedAt: this.previousUpdatedAt ?? state.updatedAt
+    };
+  }
+}
+
 export type MoveNodesCommandInput = {
   ids: NodeId[];
   delta: Point;
@@ -263,6 +572,32 @@ function cloneSelection(selection: BoardSelection): BoardSelection {
   return {
     nodeIds: [...selection.nodeIds],
     edgeIds: [...selection.edgeIds]
+  };
+}
+
+function createDefaultEdge(edgeId: EdgeId, from: EdgeEndpoint, to: EdgeEndpoint): BoardEdge {
+  return {
+    id: edgeId,
+    from: cloneEndpoint(from),
+    to: cloneEndpoint(to),
+    fixedPoints: [],
+    pathType: defaultBoardSettings.edgeStyle.pathType,
+    arrow: defaultBoardSettings.edgeStyle.arrow,
+    stroke: { ...defaultBoardSettings.edgeStyle.stroke }
+  };
+}
+
+function cloneEndpoint(endpoint: EdgeEndpoint): EdgeEndpoint {
+  if (endpoint.type === "point") {
+    return {
+      type: "point",
+      point: { ...endpoint.point }
+    };
+  }
+
+  return {
+    type: "node",
+    nodeId: endpoint.nodeId
   };
 }
 
