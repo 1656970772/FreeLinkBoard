@@ -5,6 +5,8 @@ import {
   CreateEdgeCommand,
   CreateLinkedTextNodeCommand,
   CreateTextNodeCommand,
+  InsertEdgeFixedPointCommand,
+  MoveEdgeFixedPointCommand,
   MoveNodesCommand,
   ResizeNodeCommand,
   UpdateEdgeStyleCommand,
@@ -61,6 +63,12 @@ type EditingDraft = {
 type DragPreview = {
   nodeIds: NodeId[];
   delta: Point;
+};
+
+type FixedPointDragState = {
+  edgeId: string;
+  index: number;
+  startPoint: Point;
 };
 
 type EdgeCreationFollowUp = {
@@ -127,10 +135,12 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   const edgeCreationFollowUpRef = useRef<EdgeCreationFollowUp | null>(null);
   const resizeStateRef = useRef<ResizeState | null>(null);
   const selectionBoxRef = useRef<SelectionBoxState | null>(null);
+  const fixedPointDragStateRef = useRef<FixedPointDragState | null>(null);
   const [selectionBox, setSelectionBox] = useState<Bounds | null>(null);
   const [editingDraft, setEditingDraft] = useState<EditingDraft | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [linkSourceNodeId, setLinkSourceNodeId] = useState<NodeId | null>(null);
+  const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
   const nodes = useMemo(() => Object.values(board.nodes), [board.nodes]);
   const edges = useMemo(() => Object.values(board.edges), [board.edges]);
   const selectedEdge = useMemo((): BoardEdge | null => {
@@ -140,6 +150,13 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
 
     return board.edges[board.selection.edgeIds[0]!] ?? null;
   }, [board.edges, board.selection.edgeIds]);
+  const controlEdge = useMemo((): BoardEdge | null => {
+    if (selectedEdge) {
+      return selectedEdge;
+    }
+
+    return hoveredEdgeId ? board.edges[hoveredEdgeId] ?? null : null;
+  }, [board.edges, hoveredEdgeId, selectedEdge]);
   const nodeSizeOverrides = useMemo((): Partial<Record<NodeId, Size>> | undefined => {
     if (!editingDraft) {
       return undefined;
@@ -248,6 +265,21 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
 
     const bounds = event.currentTarget.getBoundingClientRect();
     const screenPoint = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+    const edgeHit = hitTestEdges(edges, board.nodes, screenPoint, viewport);
+    if (edgeHit) {
+      runBoardCommand(
+        new InsertEdgeFixedPointCommand({
+          clock: new Date().toISOString(),
+          edgeId: edgeHit.edgeId,
+          index: edgeHit.insertionIndex,
+          point: edgeHit.worldPoint
+        })
+      );
+      selectEdges([edgeHit.edgeId]);
+      setHoveredEdgeId(edgeHit.edgeId);
+      return;
+    }
+
     const nodeId = `node_${nanoid()}`;
     runBoardCommand(
       new CreateTextNodeCommand({
@@ -284,6 +316,27 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     event.currentTarget.setPointerCapture(event.pointerId);
     panCaptureRef.current = event.currentTarget;
     panStartRef.current = { x: event.clientX, y: event.clientY };
+  };
+
+  const beginFixedPointDrag = (edgeId: string, index: number, event: PointerEvent<HTMLElement>): void => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    const point = board.edges[edgeId]?.fixedPoints[index];
+    if (!point) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    selectEdges([edgeId]);
+    fixedPointDragStateRef.current = {
+      edgeId,
+      index,
+      startPoint: point
+    };
   };
 
   const beginNodeDrag = (nodeId: NodeId, event: PointerEvent<HTMLElement>): void => {
@@ -354,8 +407,14 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       return;
     }
 
+    if (fixedPointDragStateRef.current) {
+      return;
+    }
+
     const selectionState = selectionBoxRef.current;
     if (!selectionState) {
+      const edgeHit = hitTestEdges(edges, board.nodes, getLocalScreenPoint(event), viewport);
+      setHoveredEdgeId(edgeHit?.edgeId ?? null);
       return;
     }
 
@@ -428,6 +487,30 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     );
   };
 
+  const finishFixedPointDrag = (event: PointerEvent<HTMLElement>): void => {
+    const fixedPointDragState = fixedPointDragStateRef.current;
+    if (!fixedPointDragState) {
+      return;
+    }
+
+    fixedPointDragStateRef.current = null;
+    const element = containerRef.current ?? event.currentTarget;
+    const point = screenToWorld(getElementLocalScreenPoint(element, event.clientX, event.clientY), viewport);
+    if (point.x === fixedPointDragState.startPoint.x && point.y === fixedPointDragState.startPoint.y) {
+      return;
+    }
+
+    runBoardCommand(
+      new MoveEdgeFixedPointCommand({
+        clock: new Date().toISOString(),
+        edgeId: fixedPointDragState.edgeId,
+        index: fixedPointDragState.index,
+        point
+      })
+    );
+    selectEdges([fixedPointDragState.edgeId]);
+  };
+
   const endPan = (event: PointerEvent<HTMLDivElement>): void => {
     const panCapture = panCaptureRef.current;
     if (panStartRef.current && panCapture) {
@@ -484,6 +567,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   };
 
   const finishPointerInteraction = (event: PointerEvent<HTMLDivElement>): void => {
+    finishFixedPointDrag(event);
     finishNodeResize(event);
     finishNodeDrag(event);
     finishSelectionBox(event);
@@ -663,9 +747,12 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         viewport={viewport}
       />
       <EdgeControlLayer
-        edge={selectedEdge}
+        edge={controlEdge}
+        showToolbar={Boolean(selectedEdge)}
         nodes={board.nodes}
         onEdgeStyleChange={updateSelectedEdgeStyle}
+        onFixedPointPointerDown={beginFixedPointDrag}
+        onFixedPointPointerUp={finishFixedPointDrag}
         viewport={viewport}
       />
       <NodeDomLayer

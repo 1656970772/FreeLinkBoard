@@ -825,6 +825,97 @@ describe("BoardCanvas interactions", () => {
     expect(useDocumentStore.getState().saveStatus).toBe("saved");
   });
 
+  it("inserts a fixed point by double-clicking an edge path and selects the edge", () => {
+    resetStore(createBoardWithEdge());
+    render(<StoreConnectedBoard />);
+
+    fireEvent.doubleClick(screen.getByTestId("board-canvas"), { clientX: 240, clientY: 148 });
+
+    expect(useDocumentStore.getState().currentBoard?.edges.edge_1?.fixedPoints).toEqual([{ x: 240, y: 148 }]);
+    expect(useDocumentStore.getState().currentBoard?.selection).toEqual({ nodeIds: [], edgeIds: ["edge_1"] });
+    expect(screen.getByTestId("edge-fixed-point-edge_1-0")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("shows fixed point handles when hovering an edge", () => {
+    const board = createBoardWithEdge();
+    resetStore({
+      ...board,
+      edges: {
+        edge_1: {
+          ...board.edges.edge_1!,
+          fixedPoints: [{ x: 260, y: 180 }]
+        }
+      }
+    });
+    render(<StoreConnectedBoard />);
+
+    expect(screen.queryByTestId("edge-fixed-point-edge_1-0")).toBeNull();
+
+    fireEvent.pointerMove(screen.getByTestId("board-canvas"), { clientX: 240, clientY: 164, pointerId: 1 });
+
+    expect(screen.getByTestId("edge-fixed-point-edge_1-0")).toBeInTheDocument();
+    expect(screen.queryByTestId("edge-floating-toolbar")).toBeNull();
+  });
+
+  it("moves a fixed point by dragging its handle and supports undo and redo", () => {
+    const board = createBoardWithEdge();
+    resetStore({
+      ...board,
+      edges: {
+        edge_1: {
+          ...board.edges.edge_1!,
+          fixedPoints: [{ x: 240, y: 148 }]
+        }
+      },
+      selection: { nodeIds: [], edgeIds: ["edge_1"] }
+    });
+    render(<StoreConnectedBoard />);
+    const handle = screen.getByTestId("edge-fixed-point-edge_1-0");
+
+    fireEvent.pointerDown(handle, { button: 0, clientX: 240, clientY: 148, pointerId: 1 });
+    fireEvent.pointerMove(screen.getByTestId("board-canvas"), { clientX: 280, clientY: 188, pointerId: 1 });
+    fireEvent.pointerUp(screen.getByTestId("board-canvas"), { clientX: 280, clientY: 188, pointerId: 1 });
+
+    expect(useDocumentStore.getState().currentBoard?.edges.edge_1?.fixedPoints).toEqual([{ x: 280, y: 188 }]);
+    expect(useDocumentStore.getState().currentBoard?.selection).toEqual({ nodeIds: [], edgeIds: ["edge_1"] });
+
+    fireEvent.keyDown(window, { code: "KeyZ", ctrlKey: true });
+
+    expect(useDocumentStore.getState().currentBoard?.edges.edge_1?.fixedPoints).toEqual([{ x: 240, y: 148 }]);
+
+    fireEvent.keyDown(window, { code: "KeyY", ctrlKey: true });
+
+    expect(useDocumentStore.getState().currentBoard?.edges.edge_1?.fixedPoints).toEqual([{ x: 280, y: 188 }]);
+  });
+
+  it("keeps fixed point handle pointer events from clearing selection or creating nodes", () => {
+    const board = createBoardWithEdge();
+    resetStore({
+      ...board,
+      edges: {
+        edge_1: {
+          ...board.edges.edge_1!,
+          fixedPoints: [{ x: 240, y: 148 }]
+        }
+      },
+      selection: { nodeIds: [], edgeIds: ["edge_1"] }
+    });
+    render(<StoreConnectedBoard />);
+    const initialNodeCount = Object.keys(useDocumentStore.getState().currentBoard?.nodes ?? {}).length;
+    const handle = screen.getByTestId("edge-fixed-point-edge_1-0");
+
+    fireEvent.pointerDown(handle, { button: 0, clientX: 240, clientY: 148, pointerId: 1 });
+    fireEvent.pointerUp(handle, { clientX: 240, clientY: 148, pointerId: 1 });
+    fireEvent.pointerUp(screen.getByTestId("board-canvas"), { clientX: 300, clientY: 188, pointerId: 1 });
+    fireEvent.doubleClick(handle, { clientX: 240, clientY: 148 });
+
+    expect(Object.keys(useDocumentStore.getState().currentBoard?.nodes ?? {})).toHaveLength(initialNodeCount);
+    expect(useDocumentStore.getState().currentBoard?.edges.edge_1?.fixedPoints).toEqual([{ x: 240, y: 148 }]);
+    expect(useDocumentStore.getState().currentBoard?.selection).toEqual({ nodeIds: [], edgeIds: ["edge_1"] });
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
   it("updates the selected edge style from the floating toolbar and marks the board dirty", () => {
     resetStore({
       ...createBoardWithEdge(),
