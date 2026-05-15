@@ -1,5 +1,8 @@
 import type { BoardEdge, BoardNode, EdgeEndpoint, Point } from "../../domain/board/types";
 import type { Bounds } from "./bounds";
+import { approximateEdgePathPoints } from "./edgePathGeometry";
+
+export { resolveEdgeEndpoint } from "./edgePathGeometry";
 
 export type EdgePath = {
   key: string;
@@ -9,26 +12,8 @@ export type EdgePath = {
 
 const EMPTY_BOUNDS: Bounds = { x: 0, y: 0, width: -1, height: -1 };
 
-export function resolveEdgeEndpoint(endpoint: EdgeEndpoint, nodes: Record<string, BoardNode>): Point | null {
-  if (endpoint.type === "point") {
-    return endpoint.point;
-  }
-
-  const node = nodes[endpoint.nodeId];
-  if (!node) {
-    return null;
-  }
-
-  return {
-    x: node.position.x + node.size.width / 2,
-    y: node.position.y + node.size.height / 2
-  };
-}
-
 export function createEdgePath(edge: BoardEdge, nodes: Record<string, BoardNode>): EdgePath {
-  const from = resolveEdgeEndpoint(edge.from, nodes);
-  const to = resolveEdgeEndpoint(edge.to, nodes);
-  const points = from && to ? [from, ...edge.fixedPoints, to] : [];
+  const points = approximateEdgePathPoints(edge, nodes);
 
   return {
     key: createEdgePathKey(edge, nodes),

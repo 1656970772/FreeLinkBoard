@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BoardEdge, BoardNode } from "../../../src/domain/board/types";
 import { EdgePathCache, createEdgePath, resolveEdgeEndpoint } from "../../../src/application/geometry/edgePathCache";
+import { approximateEdgePathPoints } from "../../../src/application/geometry/edgeHitTesting";
 import { SpatialIndex } from "../../../src/application/geometry/SpatialIndex";
 
 const nodes: Record<string, BoardNode> = {
@@ -57,6 +58,27 @@ describe("edge path cache", () => {
       ],
       bounds: { x: 148, y: 98, width: 344, height: 194 }
     });
+  });
+
+  it("covers sampled bezier points that overshoot reverse long-distance anchors", () => {
+    const reverseBezierEdge: BoardEdge = {
+      id: "edge-reverse-bezier",
+      from: { type: "point", point: { x: 1000, y: 100 } },
+      to: { type: "point", point: { x: 0, y: 140 } },
+      pathType: "bezier",
+      arrow: "end",
+      stroke: { color: "#333", width: 2, dash: "solid" },
+      fixedPoints: []
+    };
+
+    const path = createEdgePath(reverseBezierEdge, nodes);
+    const sampledPoints = approximateEdgePathPoints(reverseBezierEdge, nodes);
+    const right = path.bounds.x + path.bounds.width;
+    const bottom = path.bounds.y + path.bounds.height;
+
+    expect(sampledPoints.some((point) => point.x > 1032 || point.x < -32)).toBe(true);
+    expect(sampledPoints.every((point) => point.x >= path.bounds.x && point.x <= right)).toBe(true);
+    expect(sampledPoints.every((point) => point.y >= path.bounds.y && point.y <= bottom)).toBe(true);
   });
 
   it("returns the same path object for unchanged edge and node geometry", () => {
