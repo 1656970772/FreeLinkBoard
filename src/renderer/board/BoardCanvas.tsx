@@ -476,6 +476,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         edges={edges}
         nodes={board.nodes}
         onVisibleEdgeCountChange={setVisibleEdgeCount}
+        selectedEdgeIds={board.selection.edgeIds}
         size={canvasSize}
         viewport={viewport}
       />
