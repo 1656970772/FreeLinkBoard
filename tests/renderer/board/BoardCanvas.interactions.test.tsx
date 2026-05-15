@@ -699,7 +699,10 @@ describe("BoardCanvas interactions", () => {
 
     const board = useDocumentStore.getState().currentBoard;
     expect(tabWasNotPrevented).toBe(false);
-    expect(board?.nodes["node_stable-node"]?.position).toEqual({ x: 320, y: 120 });
+    expect(board?.nodes["node_stable-node"]?.position.x).toBeGreaterThanOrEqual(
+      board!.nodes.node_1!.position.x + board!.nodes.node_1!.size.width + 60
+    );
+    expect(board?.nodes["node_stable-node"]?.position.y).toBe(120);
     expect(board?.edges["edge_stable-node"]).toMatchObject({
       from: { type: "node", nodeId: "node_1" },
       to: { type: "node", nodeId: "node_stable-node" }
@@ -708,6 +711,31 @@ describe("BoardCanvas interactions", () => {
     expect(board?.nodes.node_1?.text).toBe("Edited text");
     expect(screen.getByRole("textbox")).toHaveFocus();
     expect(screen.getByRole("textbox")).toHaveValue("");
+  });
+
+  it("places a linked node after the committed auto-size when pressing Tab while editing", () => {
+    resetStore(createBoardWithNode());
+    render(<StoreConnectedBoard />);
+
+    fireEvent.doubleClick(screen.getByTestId("board-node-node_1"));
+    const longSingleLineText = "abcdefghijklmnopqrstuvwxyzabcdefghijklmnop";
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: longSingleLineText } });
+
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Tab", code: "Tab" });
+
+    const board = useDocumentStore.getState().currentBoard;
+    const sourceNode = board?.nodes.node_1;
+    const linkedNode = board?.nodes["node_stable-node"];
+
+    expect(sourceNode?.text).toBe(longSingleLineText);
+    expect(sourceNode?.size).toEqual({ width: 320, height: 56 });
+    expect(linkedNode?.position.x).toBeGreaterThanOrEqual(
+      sourceNode!.position.x + sourceNode!.size.width + 60
+    );
+    expect(board?.edges["edge_stable-node"]).toMatchObject({
+      from: { type: "node", nodeId: "node_1" },
+      to: { type: "node", nodeId: "node_stable-node" }
+    });
   });
 
   it("creates a linked editable text node to the right on Tab when one node is selected", () => {

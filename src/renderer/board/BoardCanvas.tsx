@@ -191,13 +191,19 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         );
       }
 
+      const placementSource =
+        editingDraft?.nodeId === sourceNodeId && sourceNode.sizing === "auto"
+          ? { ...sourceNode, size: estimateTextNodeSize(editingDraft.text), text: editingDraft.text }
+          : sourceNode;
+      const placementNodes =
+        placementSource === sourceNode ? board.nodes : { ...board.nodes, [sourceNodeId]: placementSource };
       const nodeId = `node_${nanoid()}`;
       runBoardCommand(
         new CreateLinkedTextNodeCommand({
           clock,
           edgeId: `edge_${nanoid()}`,
           nodeId,
-          position: findLinkedNodePosition(sourceNode, board.nodes),
+          position: findLinkedNodePosition(placementSource, placementNodes),
           sourceNodeId,
           text: ""
         })
