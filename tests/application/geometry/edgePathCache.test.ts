@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BoardEdge, BoardNode } from "../../../src/domain/board/types";
 import { EdgePathCache, createEdgePath, resolveEdgeEndpoint } from "../../../src/application/geometry/edgePathCache";
+import { SpatialIndex } from "../../../src/application/geometry/SpatialIndex";
 
 const nodes: Record<string, BoardNode> = {
   "node-a": {
@@ -42,6 +43,10 @@ describe("edge path cache", () => {
     expect(resolveEdgeEndpoint({ type: "point", point: { x: 12, y: 34 } }, nodes)).toEqual({ x: 12, y: 34 });
   });
 
+  it("does not resolve missing node endpoints to the origin", () => {
+    expect(resolveEdgeEndpoint({ type: "node", nodeId: "missing-node" }, nodes)).toBeNull();
+  });
+
   it("creates deterministic path points and bounds", () => {
     expect(createEdgePath(edge, nodes)).toEqual({
       key: "edge-a|straight|node:node-a:100,200,160,80|node:node-b:400,100,120,60|fixed:280,260",
@@ -75,5 +80,20 @@ describe("edge path cache", () => {
 
     expect(after).not.toBe(before);
     expect(after.points[0]).toEqual({ x: 200, y: 240 });
+  });
+
+  it("returns an unindexed empty path when an endpoint node is missing", () => {
+    const invalidEdge = {
+      ...edge,
+      from: { type: "node", nodeId: "missing-node" }
+    } satisfies BoardEdge;
+    const path = createEdgePath(invalidEdge, nodes);
+    const index = new SpatialIndex();
+
+    index.upsert(invalidEdge.id, path.bounds);
+
+    expect(path.points).toEqual([]);
+    expect(path.bounds).toEqual({ x: 0, y: 0, width: -1, height: -1 });
+    expect(index.query({ x: -32, y: -32, width: 64, height: 64 })).toEqual([]);
   });
 });

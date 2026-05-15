@@ -66,4 +66,35 @@ describe("edge hit testing", () => {
 
     expect(findNearestSegmentInsertionIndex(points, { x: 360, y: 170 })).toBe(1);
   });
+
+  it("returns the original anchor segment insertion index for bezier hit tests", () => {
+    const edge = {
+      ...createEdge("bezier"),
+      fixedPoints: [{ x: 320, y: 180 }]
+    };
+
+    const hit = hitTestEdges([edge], nodes, { x: 405, y: 172 }, { x: 0, y: 0, zoom: 1 }, 20);
+
+    expect(hit?.insertionIndex).toBe(1);
+  });
+
+  it("returns the original anchor segment insertion index for rounded elbow hit tests", () => {
+    const edge = {
+      ...createEdge("roundedElbow"),
+      fixedPoints: [{ x: 320, y: 180 }]
+    };
+
+    const hit = hitTestEdges([edge], nodes, { x: 410, y: 180 }, { x: 0, y: 0, zoom: 1 }, 10);
+
+    expect(hit?.insertionIndex).toBe(1);
+  });
+
+  it("skips edges with missing node endpoints instead of hit testing from the origin", () => {
+    const missingSourceEdge = {
+      ...createEdge("straight"),
+      from: { type: "node", nodeId: "missing-source" }
+    } satisfies BoardEdge;
+
+    expect(hitTestEdges([missingSourceEdge], nodes, { x: 0, y: 0 }, { x: 0, y: 0, zoom: 1 }, 32)).toBeNull();
+  });
 });

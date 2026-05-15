@@ -7,14 +7,16 @@ export type EdgePath = {
   bounds: Bounds;
 };
 
-export function resolveEdgeEndpoint(endpoint: EdgeEndpoint, nodes: Record<string, BoardNode>): Point {
+const EMPTY_BOUNDS: Bounds = { x: 0, y: 0, width: -1, height: -1 };
+
+export function resolveEdgeEndpoint(endpoint: EdgeEndpoint, nodes: Record<string, BoardNode>): Point | null {
   if (endpoint.type === "point") {
     return endpoint.point;
   }
 
   const node = nodes[endpoint.nodeId];
   if (!node) {
-    return { x: 0, y: 0 };
+    return null;
   }
 
   return {
@@ -24,11 +26,9 @@ export function resolveEdgeEndpoint(endpoint: EdgeEndpoint, nodes: Record<string
 }
 
 export function createEdgePath(edge: BoardEdge, nodes: Record<string, BoardNode>): EdgePath {
-  const points = [
-    resolveEdgeEndpoint(edge.from, nodes),
-    ...edge.fixedPoints,
-    resolveEdgeEndpoint(edge.to, nodes)
-  ];
+  const from = resolveEdgeEndpoint(edge.from, nodes);
+  const to = resolveEdgeEndpoint(edge.to, nodes);
+  const points = from && to ? [from, ...edge.fixedPoints, to] : [];
 
   return {
     key: createEdgePathKey(edge, nodes),
@@ -86,6 +86,10 @@ function pointKey(point: Point): string {
 }
 
 function getPointsBounds(points: Point[]): Bounds {
+  if (points.length === 0) {
+    return EMPTY_BOUNDS;
+  }
+
   const xs = points.map((point) => point.x);
   const ys = points.map((point) => point.y);
   const minX = Math.min(...xs);
