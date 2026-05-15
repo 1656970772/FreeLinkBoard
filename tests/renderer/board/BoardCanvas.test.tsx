@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createBoardFixture } from "../../../src/application/fixtures/createBoardFixture";
 import { SpatialIndex } from "../../../src/application/geometry/SpatialIndex";
 import type { BoardEdge, BoardNode, BoardState } from "../../../src/domain/board/types";
 
@@ -8,6 +9,7 @@ const mockCanvasContext = {
   clearRect: vi.fn(),
   lineTo: vi.fn(),
   moveTo: vi.fn(),
+  quadraticCurveTo: vi.fn(),
   restore: vi.fn(),
   save: vi.fn(),
   scale: vi.fn(),
@@ -85,6 +87,21 @@ describe("BoardCanvas", () => {
     expect(screen.getByTestId("board-node-visible")).toBeTruthy();
     expect(screen.getByTestId("board-node-also-visible")).toBeTruthy();
     expect(screen.queryByTestId("board-node-hidden")).toBeNull();
+  });
+
+  it("smoke renders a large board without mounting every node", async () => {
+    const querySpy = vi.spyOn(SpatialIndex.prototype, "query");
+    const { BoardCanvas } = await import("../../../src/renderer/board/BoardCanvas");
+    const board = createBoardFixture({ nodeCount: 1000, edgeCount: 1600 });
+
+    const { container } = render(<BoardCanvas board={board} size={{ width: 1440, height: 900 }} />);
+
+    const renderedNodeRoots = container.querySelectorAll('[data-testid^="board-node-fixture-node-"]');
+    expect(screen.getByTestId("board-node-fixture-node-00000")).toBeTruthy();
+    expect(screen.queryByTestId("board-node-fixture-node-00999")).toBeNull();
+    expect(renderedNodeRoots.length).toBeGreaterThan(0);
+    expect(renderedNodeRoots.length).toBeLessThan(150);
+    expect(querySpy.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it("keeps node text stable when zoomed out", async () => {
