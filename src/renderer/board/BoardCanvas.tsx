@@ -31,6 +31,7 @@ export type BoardCanvasProps = {
 
 const defaultSize: Size = { width: 960, height: 640 };
 const POINTER_DRAG_THRESHOLD = 4;
+const EDGE_CREATION_FOLLOW_UP_MS = 350;
 const MIN_NODE_SIZE: Size = { width: 96, height: 44 };
 
 type DragState = {
@@ -57,6 +58,12 @@ type EditingDraft = {
 type DragPreview = {
   nodeIds: NodeId[];
   delta: Point;
+};
+
+type EdgeCreationFollowUp = {
+  target: "canvas" | "node";
+  targetNodeId?: NodeId;
+  until: number;
 };
 
 function useMeasuredSize(ref: RefObject<HTMLDivElement | null>, explicitSize?: Size): Size {
@@ -113,7 +120,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   const panCaptureRef = useRef<HTMLElement | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
   const suppressNextNodeClickRef = useRef(false);
-  const suppressNextDoubleClickRef = useRef(false);
+  const edgeCreationFollowUpRef = useRef<EdgeCreationFollowUp | null>(null);
   const resizeStateRef = useRef<ResizeState | null>(null);
   const selectionBoxRef = useRef<SelectionBoxState | null>(null);
   const [selectionBox, setSelectionBox] = useState<Bounds | null>(null);
@@ -224,8 +231,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   }, [board.nodes, board.selection.nodeIds, redoBoardCommand, runBoardCommand, undoBoardCommand]);
 
   const createNodeFromBlankDoubleClick = (event: MouseEvent<HTMLDivElement>): void => {
-    if (suppressNextDoubleClickRef.current) {
-      suppressNextDoubleClickRef.current = false;
+    if (isCanvasEdgeCreationFollowUpActive()) {
       return;
     }
 
@@ -279,6 +285,10 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     }
 
     if (event.button !== 0) {
+      return;
+    }
+
+    if (isNodeEdgeCreationFollowUpActive(nodeId)) {
       return;
     }
 
@@ -437,6 +447,10 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         return;
       }
 
+      if (isCanvasEdgeCreationFollowUpActive()) {
+        return;
+      }
+
       selectNodes([]);
       return;
     }
@@ -465,6 +479,10 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       return;
     }
 
+    if (isNodeEdgeCreationFollowUpActive(nodeId)) {
+      return;
+    }
+
     if (linkSourceNodeId) {
       createEdgeFromLinkSource({ type: "node", nodeId });
       return;
@@ -482,7 +500,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     setEditingNodeId(null);
     setEditingDraft(null);
     setLinkSourceNodeId(null);
-    suppressNextDoubleClick();
+    markEdgeCreationFollowUp(to);
     runBoardCommand(
       new CreateEdgeCommand({
         clock: new Date().toISOString(),
@@ -494,8 +512,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   };
 
   const editNode = (nodeId: NodeId): void => {
-    if (suppressNextDoubleClickRef.current) {
-      suppressNextDoubleClickRef.current = false;
+    if (isNodeEdgeCreationFollowUpActive(nodeId)) {
       return;
     }
 
@@ -509,11 +526,33 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     setEditingDraft({ nodeId, text: board.nodes[nodeId]?.text ?? "" });
   };
 
-  const suppressNextDoubleClick = (): void => {
-    suppressNextDoubleClickRef.current = true;
-    window.setTimeout(() => {
-      suppressNextDoubleClickRef.current = false;
-    }, 0);
+  const markEdgeCreationFollowUp = (to: EdgeEndpoint): void => {
+    const until = getInteractionNow() + EDGE_CREATION_FOLLOW_UP_MS;
+    edgeCreationFollowUpRef.current =
+      to.type === "node" ? { target: "node", targetNodeId: to.nodeId, until } : { target: "canvas", until };
+  };
+
+  const isNodeEdgeCreationFollowUpActive = (nodeId: NodeId): boolean => {
+    const followUp = getActiveEdgeCreationFollowUp();
+    return followUp?.target === "node" && followUp.targetNodeId === nodeId;
+  };
+
+  const isCanvasEdgeCreationFollowUpActive = (): boolean => {
+    return getActiveEdgeCreationFollowUp()?.target === "canvas";
+  };
+
+  const getActiveEdgeCreationFollowUp = (): EdgeCreationFollowUp | null => {
+    const followUp = edgeCreationFollowUpRef.current;
+    if (!followUp) {
+      return null;
+    }
+
+    if (getInteractionNow() > followUp.until) {
+      edgeCreationFollowUpRef.current = null;
+      return null;
+    }
+
+    return followUp;
   };
 
   const updateNodeTextDraft = (nodeId: NodeId, text: string): void => {
@@ -667,4 +706,8 @@ function getElementLocalScreenPoint(element: HTMLElement, clientX: number, clien
     x: clientX - bounds.left,
     y: clientY - bounds.top
   };
+}
+
+function getInteractionNow(): number {
+  return performance.now();
 }

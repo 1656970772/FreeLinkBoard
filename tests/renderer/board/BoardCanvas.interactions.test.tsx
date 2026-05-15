@@ -769,25 +769,32 @@ describe("BoardCanvas interactions", () => {
   });
 
   it("does not create a blank text node after a Ctrl+L blank double-click creates a point edge", () => {
-    resetStore({
-      ...createBoardWithNode(),
-      selection: { nodeIds: ["node_1"], edgeIds: [] }
-    });
-    render(<StoreConnectedBoard />);
-    const canvas = screen.getByTestId("board-canvas");
+    vi.useFakeTimers();
+    try {
+      resetStore({
+        ...createBoardWithNode(),
+        selection: { nodeIds: ["node_1"], edgeIds: [] }
+      });
+      render(<StoreConnectedBoard />);
+      const canvas = screen.getByTestId("board-canvas");
 
-    fireEvent.keyDown(window, { code: "KeyL", ctrlKey: true });
-    fireEvent.pointerDown(canvas, { button: 0, clientX: 420, clientY: 240, pointerId: 1 });
-    fireEvent.pointerUp(canvas, { button: 0, clientX: 420, clientY: 240, pointerId: 1 });
-    fireEvent.doubleClick(canvas, { clientX: 420, clientY: 240 });
+      fireEvent.keyDown(window, { code: "KeyL", ctrlKey: true });
+      fireEvent.pointerDown(canvas, { button: 0, clientX: 420, clientY: 240, pointerId: 1 });
+      fireEvent.pointerUp(canvas, { button: 0, clientX: 420, clientY: 240, pointerId: 1 });
+      vi.advanceTimersByTime(1);
+      fireEvent.doubleClick(canvas, { clientX: 420, clientY: 240 });
 
-    const board = useDocumentStore.getState().currentBoard;
-    expect(Object.keys(board?.nodes ?? {})).toHaveLength(1);
-    expect(board?.edges["edge_stable-node"]).toMatchObject({
-      from: { type: "node", nodeId: "node_1" },
-      to: { type: "point", point: { x: 420, y: 240 } }
-    });
-    expect(screen.queryByRole("textbox")).toBeNull();
+      const board = useDocumentStore.getState().currentBoard;
+      expect(Object.keys(board?.nodes ?? {})).toHaveLength(1);
+      expect(board?.edges["edge_stable-node"]).toMatchObject({
+        from: { type: "node", nodeId: "node_1" },
+        to: { type: "point", point: { x: 420, y: 240 } }
+      });
+      expect(board?.selection).toEqual({ nodeIds: [], edgeIds: ["edge_stable-node"] });
+      expect(screen.queryByRole("textbox")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not edit a target node after a Ctrl+L target double-click creates an edge", () => {
@@ -817,6 +824,8 @@ describe("BoardCanvas interactions", () => {
     render(<StoreConnectedBoard />);
 
     fireEvent.keyDown(window, { code: "KeyL", ctrlKey: true });
+    fireEvent.click(screen.getByTestId("board-node-node_2"));
+    fireEvent.click(screen.getByTestId("board-node-node_2"));
     fireEvent.doubleClick(screen.getByTestId("board-node-node_2"));
 
     expect(useDocumentStore.getState().currentBoard?.edges["edge_stable-node"]).toMatchObject({
