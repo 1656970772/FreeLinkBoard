@@ -8,6 +8,7 @@ export type UseCanvasViewportResult = {
   setViewport: Dispatch<SetStateAction<Viewport>>;
   panByScreenDelta: (delta: Point) => void;
   zoomAtScreenPoint: (screenPoint: Point, nextZoom: number) => void;
+  zoomByScreenPoint: (screenPoint: Point, zoomFactor: number) => void;
 };
 
 export function useCanvasViewport(initialViewport: Viewport): UseCanvasViewportResult {
@@ -25,10 +26,15 @@ export function useCanvasViewport(initialViewport: Viewport): UseCanvasViewportR
     setViewport((current) => zoomViewportAtScreenPoint(current, screenPoint, clampZoom(nextZoom)));
   }, []);
 
+  const zoomByScreenPoint = useCallback((screenPoint: Point, zoomFactor: number) => {
+    setViewport((current) => zoomViewportAtScreenPoint(current, screenPoint, current.zoom * zoomFactor));
+  }, []);
+
   return {
     viewport,
     setViewport,
     panByScreenDelta,
-    zoomAtScreenPoint
+    zoomAtScreenPoint,
+    zoomByScreenPoint
   };
 }

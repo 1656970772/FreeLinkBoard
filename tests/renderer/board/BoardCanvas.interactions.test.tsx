@@ -390,6 +390,31 @@ describe("BoardCanvas interactions", () => {
     expect(screen.getByTestId("interaction-overlay-layer").textContent).toContain("zoom 1.10");
   });
 
+  it("zooms around the mouse position instead of the viewport origin", () => {
+    resetStore(
+      createBoardWithNodes([
+        {
+          id: "node_1",
+          type: "text",
+          position: { x: 320, y: 180 },
+          size: defaultBoardSettings.textNodeSize,
+          sizing: "auto",
+          text: "Cursor anchor",
+          style: defaultBoardSettings.textNodeStyle
+        }
+      ])
+    );
+    render(<StoreConnectedBoard />);
+    const canvas = screen.getByTestId("board-canvas");
+
+    fireEvent.wheel(canvas, { clientX: 320, clientY: 180, ctrlKey: true, deltaY: -100 });
+
+    expect(screen.getByTestId("interaction-overlay-layer").textContent).toContain("x 29 y 16 zoom 1.10");
+    expect(screen.getByTestId("board-node-node_1")).toHaveStyle({
+      transform: "translate(320px, 180px) scale(1.1)"
+    });
+  });
+
   it("renders a resize handle for a selected non-editing node", () => {
     resetStore({
       ...createBoardWithNode(),

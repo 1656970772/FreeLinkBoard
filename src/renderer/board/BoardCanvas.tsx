@@ -98,7 +98,7 @@ function useMeasuredSize(ref: RefObject<HTMLDivElement | null>, explicitSize?: S
 export function BoardCanvas({ board, className, size, style }: BoardCanvasProps): ReactElement {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasSize = useMeasuredSize(containerRef, size);
-  const { panByScreenDelta, viewport, zoomAtScreenPoint } = useCanvasViewport(board.viewport);
+  const { panByScreenDelta, viewport, zoomByScreenPoint } = useCanvasViewport(board.viewport);
   const runBoardCommand = useDocumentStore((state) => state.runBoardCommand);
   const selectNodes = useDocumentStore((state) => state.selectNodes);
   const undoBoardCommand = useDocumentStore((state) => state.undoBoardCommand);
@@ -182,7 +182,9 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     setEditingDraft({ nodeId, text: "" });
   };
 
-  const getLocalScreenPoint = (event: PointerEvent<HTMLDivElement> | MouseEvent<HTMLDivElement>): Point => {
+  const getLocalScreenPoint = (
+    event: PointerEvent<HTMLDivElement> | MouseEvent<HTMLDivElement> | WheelEvent<HTMLDivElement>
+  ): Point => {
     const bounds = event.currentTarget.getBoundingClientRect();
     return {
       x: event.clientX - bounds.left,
@@ -433,9 +435,8 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     }
 
     event.preventDefault();
-    const bounds = event.currentTarget.getBoundingClientRect();
     const zoomFactor = event.deltaY < 0 ? 1.1 : 0.9;
-    zoomAtScreenPoint({ x: event.clientX - bounds.left, y: event.clientY - bounds.top }, viewport.zoom * zoomFactor);
+    zoomByScreenPoint(getLocalScreenPoint(event), zoomFactor);
   };
 
   return (

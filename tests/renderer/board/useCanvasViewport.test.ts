@@ -73,4 +73,16 @@ describe("useCanvasViewport", () => {
 
     expect(worldAfter).toEqual(worldBefore);
   });
+
+  it("accumulates wheel zoom factors from the latest viewport state", () => {
+    const { result } = renderHook(() => useCanvasViewport({ x: 40, y: 80, zoom: 1 }));
+    const screenPoint = { x: 200, y: 120 };
+
+    act(() => {
+      result.current.zoomByScreenPoint(screenPoint, 1.1);
+      result.current.zoomByScreenPoint(screenPoint, 1.1);
+    });
+
+    expect(result.current.viewport.zoom).toBeCloseTo(1.21);
+  });
 });
