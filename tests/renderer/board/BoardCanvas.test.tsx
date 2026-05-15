@@ -87,13 +87,15 @@ describe("BoardCanvas", () => {
     expect(screen.queryByTestId("board-node-hidden")).toBeNull();
   });
 
-  it("uses simplified node text when zoomed below the LOD threshold", async () => {
+  it("keeps node text stable when zoomed out", async () => {
     const { BoardCanvas } = await import("../../../src/renderer/board/BoardCanvas");
 
     render(<BoardCanvas board={createBoard(0.25)} size={{ width: 640, height: 360 }} />);
 
-    expect(screen.getByTestId("board-node-visible").textContent).toBe("Visible node");
-    expect(screen.queryByText("Visible node detail text")).toBeNull();
+    const content = screen.getByTestId("board-node-content-visible");
+    expect(screen.getByTestId("board-node-visible").textContent).toBe("Visible node detail text");
+    expect(content.style.fontSize).toBe("14px");
+    expect(content.style.whiteSpace).toBe("pre-wrap");
   });
 
   it("queries spatial indexes when resolving visible canvas layers", async () => {

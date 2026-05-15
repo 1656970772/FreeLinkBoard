@@ -46,6 +46,33 @@ function StoreConnectedBoard() {
   return board ? <BoardCanvas board={board} size={{ width: 640, height: 360 }} /> : null;
 }
 
+function expectNodeLocalPointToRemainUnderCursor(
+  node: HTMLElement,
+  cursor: { x: number; y: number },
+  localWorldPoint: { x: number; y: number }
+): void {
+  const transform = parseTranslateScale(node.style.transform);
+
+  expect(transform.x + localWorldPoint.x * transform.scale).toBeCloseTo(cursor.x, 4);
+  expect(transform.y + localWorldPoint.y * transform.scale).toBeCloseTo(cursor.y, 4);
+}
+
+function parseTranslateScale(transform: string): { x: number; y: number; scale: number } {
+  const match = /^translate\((-?\d+(?:\.\d+)?)px, (-?\d+(?:\.\d+)?)px\) scale\((\d+(?:\.\d+)?)\)$/.exec(
+    transform
+  );
+
+  if (!match) {
+    throw new Error(`Unexpected transform: ${transform}`);
+  }
+
+  return {
+    x: Number(match[1]),
+    y: Number(match[2]),
+    scale: Number(match[3])
+  };
+}
+
 function createBoardWithNode(): BoardState {
   return createBoardWithNodes([
     {
@@ -412,6 +439,70 @@ describe("BoardCanvas interactions", () => {
     expect(screen.getByTestId("interaction-overlay-layer").textContent).toContain("x 29 y 16 zoom 1.10");
     expect(screen.getByTestId("board-node-node_1")).toHaveStyle({
       transform: "translate(320px, 180px) scale(1.1)"
+    });
+  });
+
+  it("keeps the same node-local point under the mouse from min zoom to max zoom", () => {
+    resetStore(
+      createBoardWithNodes([
+        {
+          id: "node_1",
+          type: "text",
+          position: { x: 320, y: 180 },
+          size: { width: 120, height: 56 },
+          sizing: "auto",
+          text: "Cursor anchor",
+          style: defaultBoardSettings.textNodeStyle
+        }
+      ])
+    );
+    render(<StoreConnectedBoard />);
+    const node = screen.getByTestId("board-node-node_1");
+    const cursor = { x: 363, y: 223 };
+    const localWorldPoint = { x: cursor.x - 320, y: cursor.y - 180 };
+
+    for (let index = 0; index < 80; index += 1) {
+      fireEvent.wheel(node, { clientX: cursor.x, clientY: cursor.y, ctrlKey: true, deltaY: 100 });
+    }
+
+    expect(screen.getByTestId("interaction-overlay-layer").textContent).toContain("zoom 0.10");
+    expectNodeLocalPointToRemainUnderCursor(node, cursor, localWorldPoint);
+
+    for (let index = 0; index < 120; index += 1) {
+      fireEvent.wheel(node, { clientX: cursor.x, clientY: cursor.y, ctrlKey: true, deltaY: -100 });
+    }
+
+    expect(screen.getByTestId("interaction-overlay-layer").textContent).toContain("zoom 4.00");
+    expectNodeLocalPointToRemainUnderCursor(node, cursor, localWorldPoint);
+  });
+
+  it("keeps node content visually stable while zooming through the low zoom range", () => {
+    resetStore(
+      createBoardWithNodes([
+        {
+          id: "node_1",
+          type: "text",
+          position: { x: 320, y: 180 },
+          size: { width: 160, height: 92 },
+          sizing: "fixed",
+          text: "Line one\nLine two\nLine three",
+          style: defaultBoardSettings.textNodeStyle
+        }
+      ])
+    );
+    render(<StoreConnectedBoard />);
+    const node = screen.getByTestId("board-node-node_1");
+
+    for (let index = 0; index < 80; index += 1) {
+      fireEvent.wheel(node, { clientX: 363, clientY: 223, ctrlKey: true, deltaY: 100 });
+    }
+
+    const content = screen.getByTestId("board-node-content-node_1");
+    expect(screen.getByTestId("interaction-overlay-layer").textContent).toContain("zoom 0.10");
+    expect(content.textContent).toBe("Line one\nLine two\nLine three");
+    expect(content).toHaveStyle({
+      fontSize: "14px",
+      whiteSpace: "pre-wrap"
     });
   });
 

@@ -22,8 +22,6 @@ export type NodeDomLayerProps = {
   onVisibleNodeCountChange?: (count: number) => void;
 };
 
-const simplifyText = (text: string): string => text.trim().split(/\s+/).slice(0, 2).join(" ");
-
 function nodeBounds(node: BoardNode) {
   return {
     x: node.position.x,
@@ -102,7 +100,6 @@ export function NodeDomLayer({
           : node.position;
         const screenPoint = worldToScreen(position, viewport);
         const nodeSize = nodeSizeOverrides?.[node.id] ?? node.size;
-        const isLowDetail = viewport.zoom < 0.35;
         const isEditing = activeEditNodeId === node.id;
         const isSelected = selectedNodeIds.includes(node.id);
 
@@ -148,14 +145,14 @@ export function NodeDomLayer({
                 <div
                   data-testid={`board-node-content-${node.id}`}
                   style={{
-                    fontSize: isLowDetail ? 12 : 14,
+                    fontSize: 14,
                     fontWeight: 600,
                     lineHeight: 1.25,
                     overflowWrap: "break-word",
-                    whiteSpace: isLowDetail ? "nowrap" : "pre-wrap"
+                    whiteSpace: "pre-wrap"
                   }}
                 >
-                  {isLowDetail ? simplifyText(node.text) : node.text}
+                  {node.text}
                 </div>
                 {isSelected ? (
                   <button
