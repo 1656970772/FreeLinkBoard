@@ -1,6 +1,7 @@
 import { dialog, type SaveDialogOptions } from "electron";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { parseFlbDocument, serializeFlbDocument } from "../application/document/flbCodec";
 import type { BoardState } from "../domain/board/types";
 
@@ -35,10 +36,14 @@ export async function loadFlbFromPath(path: string): Promise<BoardState> {
   return parseFlbDocument(JSON.parse(content));
 }
 
+export function createTemporaryFlbSavePath(path: string): string {
+  return join(dirname(path), `.freelinkboard-${process.pid}-${Date.now()}-${randomUUID()}.tmp`);
+}
+
 export async function saveFlbToPath(path: string, state: BoardState): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
 
-  const temporaryPath = `${path}.${process.pid}.${Date.now()}.tmp`;
+  const temporaryPath = createTemporaryFlbSavePath(path);
   const content = `${JSON.stringify(serializeFlbDocument(state), null, 2)}\n`;
 
   try {
