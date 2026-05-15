@@ -42,4 +42,19 @@ describe("HistoryService", () => {
 
     expect(history.redo().title).toBe("B");
   });
+
+  it("replaces current state without clearing undo history", () => {
+    const history = new HistoryService(createEmptyBoardState("board-1"));
+
+    const renamed = history.run(new RenameBoardCommand("Systems"));
+    history.replaceCurrent({
+      ...renamed,
+      selection: { nodeIds: ["node-1"], edgeIds: [] }
+    });
+
+    const undone = history.undo();
+
+    expect(undone.title).toBe("Untitled Board");
+    expect(undone.selection.nodeIds).toEqual(["node-1"]);
+  });
 });

@@ -1,5 +1,7 @@
 import { nanoid } from "nanoid";
 import { create } from "zustand";
+import type { BoardCommand } from "../../application/commands/BoardCommand";
+import { HistoryService } from "../../application/commands/HistoryService";
 import { createEmptyBoardState } from "../../domain/board/defaults";
 import type { BoardState } from "../../domain/board/types";
 import type { ElectronFileApi, RecentFile } from "../../shared/electronApi";
@@ -17,9 +19,14 @@ type DocumentStore = {
   loadBoard(path: string): Promise<void>;
   openBoardDialog(): Promise<void>;
   saveCurrentBoard(path: string): Promise<void>;
+  runBoardCommand(command: BoardCommand): void;
+  undoBoardCommand(): void;
+  redoBoardCommand(): void;
+  selectNodes(nodeIds: string[]): void;
 };
 
 const fileApiUnavailableMessage = "Electron file API is unavailable.";
+let boardHistory: HistoryService | null = null;
 
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) return error.message;
@@ -35,6 +42,17 @@ const getFileApi = (set: (state: Partial<DocumentStore>) => void): ElectronFileA
   return api;
 };
 
+const resetHistory = (board: BoardState | null): void => {
+  boardHistory = board ? new HistoryService(board) : null;
+};
+
+const ensureHistory = (board: BoardState): HistoryService => {
+  if (!boardHistory || boardHistory.current() !== board) {
+    boardHistory = new HistoryService(board);
+  }
+  return boardHistory;
+};
+
 export const useDocumentStore = create<DocumentStore>((set, get) => ({
   currentPath: null,
   currentBoard: null,
@@ -43,9 +61,11 @@ export const useDocumentStore = create<DocumentStore>((set, get) => ({
   fileError: null,
 
   createNewBoard() {
+    const board = createEmptyBoardState(`board_${nanoid()}`, new Date().toISOString());
+    resetHistory(board);
     set({
       currentPath: null,
-      currentBoard: createEmptyBoardState(`board_${nanoid()}`, new Date().toISOString()),
+      currentBoard: board,
       saveStatus: "unsaved",
       fileError: null
     });
@@ -72,6 +92,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => ({
 
     try {
       const board = await api.loadFlb(path);
+      resetHistory(board);
       set({
         currentPath: path,
         currentBoard: board,
@@ -92,6 +113,7 @@ export const useDocumentStore = create<DocumentStore>((set, get) => ({
       const result = await api.openFlbDialog();
       if (result.canceled) return;
 
+      resetHistory(result.state);
       set({
         currentPath: result.path,
         currentBoard: result.state,
@@ -118,5 +140,45 @@ export const useDocumentStore = create<DocumentStore>((set, get) => ({
     } catch (error) {
       set({ saveStatus: "dirty", fileError: getErrorMessage(error) });
     }
+  },
+
+  runBoardCommand(command: BoardCommand) {
+    const currentBoard = get().currentBoard;
+    if (!currentBoard) return;
+
+    const nextBoard = ensureHistory(currentBoard).run(command);
+    set({ currentBoard: nextBoard, saveStatus: "dirty", fileError: null });
+  },
+
+  undoBoardCommand() {
+    const currentBoard = get().currentBoard;
+    if (!currentBoard) return;
+
+    const nextBoard = ensureHistory(currentBoard).undo();
+    if (nextBoard !== currentBoard) {
+      set({ currentBoard: nextBoard, saveStatus: "dirty", fileError: null });
+    }
+  },
+
+  redoBoardCommand() {
+    const currentBoard = get().currentBoard;
+    if (!currentBoard) return;
+
+    const nextBoard = ensureHistory(currentBoard).redo();
+    if (nextBoard !== currentBoard) {
+      set({ currentBoard: nextBoard, saveStatus: "dirty", fileError: null });
+    }
+  },
+
+  selectNodes(nodeIds: string[]) {
+    const currentBoard = get().currentBoard;
+    if (!currentBoard) return;
+
+    const nextBoard = {
+      ...currentBoard,
+      selection: { nodeIds, edgeIds: [] }
+    };
+    boardHistory?.replaceCurrent(nextBoard);
+    set({ currentBoard: nextBoard });
   }
 }));

@@ -14,6 +14,10 @@ export class HistoryService {
     return this.state;
   }
 
+  replaceCurrent(state: BoardState): void {
+    this.state = state;
+  }
+
   run(command: BoardCommand): BoardState {
     this.state = command.execute(this.state);
     this.undoStack.push(command);
