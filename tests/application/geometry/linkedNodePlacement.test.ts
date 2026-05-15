@@ -22,10 +22,23 @@ describe("linked node placement", () => {
     expect(findLinkedNodePosition(source, { source })).toEqual({ x: 320, y: 120 });
   });
 
-  it("moves downward when the preferred right slot intersects another node", () => {
+  it("tries vertical offsets at the preferred x before moving horizontally", () => {
     const source = createNode("source", 100, 120);
     const blocker = createNode("blocker", 310, 110);
 
     expect(findLinkedNodePosition(source, { source, blocker })).toEqual({ x: 320, y: 208 });
+  });
+
+  it("falls back farther down after the preferred vertical column is occupied", () => {
+    const source = createNode("source", 100, 120);
+    const blockers = Object.fromEntries(
+      Array.from({ length: 16 }, (_, index) => {
+        const verticalOffset = index === 0 ? 0 : Math.ceil(index / 2) * 88 * (index % 2 === 1 ? 1 : -1);
+        const node = createNode(`blocker_${index}`, 320, 120 + verticalOffset);
+        return [node.id, node];
+      })
+    );
+
+    expect(findLinkedNodePosition(source, { source, ...blockers })).toEqual({ x: 320, y: 1528 });
   });
 });

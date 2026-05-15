@@ -18,13 +18,14 @@ import type { Bounds } from "../../application/geometry/bounds";
 import { hitTestEdges } from "../../application/geometry/edgeHitTesting";
 import { findLinkedNodePosition } from "../../application/geometry/linkedNodePlacement";
 import { screenToWorld } from "../../application/geometry/viewportTransform";
+import { defaultBoardSettings } from "../../domain/board/defaults";
 import type { BoardEdge, BoardNode, BoardState, EdgeEndpoint, NodeId, Point, Size } from "../../domain/board/types";
 import { useDocumentStore } from "../stores/documentStore";
 import { GridCanvasLayer } from "./layers/GridCanvasLayer";
 import { EdgeControlLayer, type EdgeStylePatch } from "./layers/EdgeControlLayer";
 import { EdgeCanvasLayer } from "./layers/EdgeCanvasLayer";
 import { InteractionOverlayLayer } from "./layers/InteractionOverlayLayer";
-import { NodeDomLayer } from "./layers/NodeDomLayer";
+import { NodeDomLayer, type ResizeCorner } from "./layers/NodeDomLayer";
 import { useCanvasViewport } from "./useCanvasViewport";
 
 export type BoardCanvasProps = {
@@ -38,6 +39,7 @@ const defaultSize: Size = { width: 960, height: 640 };
 const POINTER_DRAG_THRESHOLD = 4;
 const EDGE_CREATION_FOLLOW_UP_MS = 350;
 const MIN_NODE_SIZE: Size = { width: 96, height: 44 };
+const LINK_PREVIEW_EDGE_ID = "__link-preview-edge";
 
 type DragState = {
   nodeIds: NodeId[];
@@ -50,7 +52,9 @@ type SelectionBoxState = {
 };
 
 type ResizeState = {
+  corner: ResizeCorner;
   nodeId: NodeId;
+  startPosition: Point;
   startScreenPoint: Point;
   startSize: Size;
 };
@@ -63,6 +67,17 @@ type EditingDraft = {
 type DragPreview = {
   nodeIds: NodeId[];
   delta: Point;
+};
+
+type ResizePreview = {
+  nodeId: NodeId;
+  position: Point;
+  size: Size;
+};
+
+type NodeGeometryOverride = {
+  position?: Point;
+  size?: Size;
 };
 
 type FixedPointDragState = {
@@ -136,13 +151,24 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   const resizeStateRef = useRef<ResizeState | null>(null);
   const selectionBoxRef = useRef<SelectionBoxState | null>(null);
   const fixedPointDragStateRef = useRef<FixedPointDragState | null>(null);
+  const latestPointerWorldPointRef = useRef<Point | null>(null);
   const [selectionBox, setSelectionBox] = useState<Bounds | null>(null);
   const [editingDraft, setEditingDraft] = useState<EditingDraft | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
+  const [resizePreview, setResizePreview] = useState<ResizePreview | null>(null);
   const [linkSourceNodeId, setLinkSourceNodeId] = useState<NodeId | null>(null);
+  const [linkPreviewPoint, setLinkPreviewPoint] = useState<Point | null>(null);
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
   const nodes = useMemo(() => Object.values(board.nodes), [board.nodes]);
   const edges = useMemo(() => Object.values(board.edges), [board.edges]);
+  const previewEdges = useMemo(() => {
+    const sourceNodeId = linkSourceNodeId;
+    if (!sourceNodeId || !linkPreviewPoint || !board.nodes[sourceNodeId]) {
+      return edges;
+    }
+
+    return [...edges, createLinkPreviewEdge(sourceNodeId, linkPreviewPoint)];
+  }, [board.nodes, edges, linkPreviewPoint, linkSourceNodeId]);
   const selectedEdge = useMemo((): BoardEdge | null => {
     if (board.selection.edgeIds.length !== 1) {
       return null;
@@ -157,20 +183,33 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
 
     return hoveredEdgeId ? board.edges[hoveredEdgeId] ?? null : null;
   }, [board.edges, hoveredEdgeId, selectedEdge]);
-  const nodeSizeOverrides = useMemo((): Partial<Record<NodeId, Size>> | undefined => {
-    if (!editingDraft) {
-      return undefined;
+  const nodeGeometryOverrides = useMemo((): Partial<Record<NodeId, NodeGeometryOverride>> => {
+    const overrides: Partial<Record<NodeId, NodeGeometryOverride>> = {};
+
+    if (editingDraft) {
+      const node = board.nodes[editingDraft.nodeId];
+      if (node?.sizing === "auto") {
+        overrides[editingDraft.nodeId] = {
+          ...overrides[editingDraft.nodeId],
+          size: estimateTextNodeSize(editingDraft.text)
+        };
+      }
     }
 
-    const node = board.nodes[editingDraft.nodeId];
-    if (!node || node.sizing !== "auto") {
-      return undefined;
+    if (resizePreview) {
+      overrides[resizePreview.nodeId] = {
+        ...overrides[resizePreview.nodeId],
+        position: resizePreview.position,
+        size: resizePreview.size
+      };
     }
 
-    return {
-      [editingDraft.nodeId]: estimateTextNodeSize(editingDraft.text)
-    };
-  }, [board.nodes, editingDraft]);
+    return overrides;
+  }, [board.nodes, editingDraft, resizePreview]);
+  const previewNodesById = useMemo(
+    () => applyNodePreviews(board.nodes, nodeGeometryOverrides, dragPreview),
+    [board.nodes, dragPreview, nodeGeometryOverrides]
+  );
 
   const createLinkedEditableTextNode = useCallback(
     (sourceNodeId: NodeId): boolean => {
@@ -209,6 +248,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         })
       );
       setLinkSourceNodeId(null);
+      setLinkPreviewPoint(null);
       setEditingNodeId(nodeId);
       setEditingDraft({ nodeId, text: "" });
       return true;
@@ -235,6 +275,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
 
       if (event.code === "Escape") {
         setLinkSourceNodeId(null);
+        setLinkPreviewPoint(null);
         return;
       }
 
@@ -267,10 +308,17 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
           return;
         }
 
+        const sourceNodeId = board.selection.nodeIds[0];
+        const sourceNode = sourceNodeId ? board.nodes[sourceNodeId] : undefined;
+        if (!sourceNode) {
+          return;
+        }
+
         event.preventDefault();
         setEditingNodeId(null);
         setEditingDraft(null);
-        setLinkSourceNodeId(board.selection.nodeIds[0] ?? null);
+        setLinkSourceNodeId(sourceNode.id);
+        setLinkPreviewPoint(latestPointerWorldPointRef.current ?? getFallbackLinkPreviewPoint(sourceNode));
         return;
       }
 
@@ -279,6 +327,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         setEditingNodeId(null);
         setEditingDraft(null);
         setLinkSourceNodeId(null);
+        setLinkPreviewPoint(null);
         undoBoardCommand();
       }
 
@@ -287,6 +336,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         setEditingNodeId(null);
         setEditingDraft(null);
         setLinkSourceNodeId(null);
+        setLinkPreviewPoint(null);
         redoBoardCommand();
       }
     };
@@ -410,7 +460,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     setDragPreview(null);
   };
 
-  const beginNodeResize = (nodeId: NodeId, event: PointerEvent<HTMLElement>): void => {
+  const beginNodeResize = (nodeId: NodeId, corner: ResizeCorner, event: PointerEvent<HTMLElement>): void => {
     if (event.button !== 0) {
       return;
     }
@@ -423,13 +473,20 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     resizeStateRef.current = {
+      corner,
       nodeId,
+      startPosition: node.position,
       startScreenPoint: { x: event.clientX, y: event.clientY },
       startSize: node.size
     };
+    setResizePreview(null);
   };
 
   const updatePointerInteraction = (event: PointerEvent<HTMLDivElement>): void => {
+    const currentScreenPoint = getLocalScreenPoint(event);
+    const currentWorldPoint = screenToWorld(currentScreenPoint, viewport);
+    latestPointerWorldPointRef.current = currentWorldPoint;
+
     const panStart = panStartRef.current;
     if (panStart) {
       const nextPoint = { x: event.clientX, y: event.clientY };
@@ -451,18 +508,29 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       return;
     }
 
+    const resizeState = resizeStateRef.current;
+    if (resizeState) {
+      setResizePreview(calculateResizeGeometry(resizeState, { x: event.clientX, y: event.clientY }, viewport.zoom));
+      return;
+    }
+
     if (fixedPointDragStateRef.current) {
+      return;
+    }
+
+    if (linkSourceNodeId) {
+      setLinkPreviewPoint(currentWorldPoint);
+      setHoveredEdgeId(null);
       return;
     }
 
     const selectionState = selectionBoxRef.current;
     if (!selectionState) {
-      const edgeHit = hitTestEdges(edges, board.nodes, getLocalScreenPoint(event), viewport);
+      const edgeHit = hitTestEdges(edges, previewNodesById, currentScreenPoint, viewport);
       setHoveredEdgeId(edgeHit?.edgeId ?? null);
       return;
     }
 
-    const currentScreenPoint = getLocalScreenPoint(event);
     selectionBoxRef.current = {
       ...selectionState,
       currentScreenPoint
@@ -507,18 +575,15 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     }
 
     resizeStateRef.current = null;
-    const nextSize = {
-      width: Math.max(
-        MIN_NODE_SIZE.width,
-        resizeState.startSize.width + (event.clientX - resizeState.startScreenPoint.x) / viewport.zoom
-      ),
-      height: Math.max(
-        MIN_NODE_SIZE.height,
-        resizeState.startSize.height + (event.clientY - resizeState.startScreenPoint.y) / viewport.zoom
-      )
-    };
+    setResizePreview(null);
+    const nextGeometry = calculateResizeGeometry(resizeState, { x: event.clientX, y: event.clientY }, viewport.zoom);
 
-    if (nextSize.width === resizeState.startSize.width && nextSize.height === resizeState.startSize.height) {
+    if (
+      nextGeometry.size.width === resizeState.startSize.width &&
+      nextGeometry.size.height === resizeState.startSize.height &&
+      nextGeometry.position.x === resizeState.startPosition.x &&
+      nextGeometry.position.y === resizeState.startPosition.y
+    ) {
       return;
     }
 
@@ -526,7 +591,8 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       new ResizeNodeCommand({
         clock: new Date().toISOString(),
         id: resizeState.nodeId,
-        size: nextSize
+        position: nextGeometry.position,
+        size: nextGeometry.size
       })
     );
   };
@@ -589,7 +655,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         return;
       }
 
-      const edgeHit = hitTestEdges(edges, board.nodes, endScreenPoint, viewport);
+      const edgeHit = hitTestEdges(edges, previewNodesById, endScreenPoint, viewport);
       if (edgeHit) {
         selectEdges([edgeHit.edgeId]);
         return;
@@ -618,6 +684,17 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     endPan(event);
   };
 
+  const cancelPointerInteraction = (event: PointerEvent<HTMLDivElement>): void => {
+    fixedPointDragStateRef.current = null;
+    resizeStateRef.current = null;
+    dragStateRef.current = null;
+    selectionBoxRef.current = null;
+    setResizePreview(null);
+    setDragPreview(null);
+    setSelectionBox(null);
+    endPan(event);
+  };
+
   const selectNode = (nodeId: NodeId): void => {
     if (suppressNextNodeClickRef.current) {
       suppressNextNodeClickRef.current = false;
@@ -639,12 +716,14 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   const createEdgeFromLinkSource = (to: EdgeEndpoint): void => {
     if (!linkSourceNodeId || !board.nodes[linkSourceNodeId]) {
       setLinkSourceNodeId(null);
+      setLinkPreviewPoint(null);
       return;
     }
 
     setEditingNodeId(null);
     setEditingDraft(null);
     setLinkSourceNodeId(null);
+    setLinkPreviewPoint(null);
     markEdgeCreationFollowUp(to);
     runBoardCommand(
       new CreateEdgeCommand({
@@ -769,7 +848,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       onPointerDown={beginPan}
       onPointerMove={updatePointerInteraction}
       onPointerUp={finishPointerInteraction}
-      onPointerCancel={finishPointerInteraction}
+      onPointerCancel={cancelPointerInteraction}
       onDoubleClick={createNodeFromBlankDoubleClick}
       style={{
         background: "#f3efe7",
@@ -783,8 +862,8 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     >
       <GridCanvasLayer size={canvasSize} viewport={viewport} />
       <EdgeCanvasLayer
-        edges={edges}
-        nodes={board.nodes}
+        edges={previewEdges}
+        nodes={previewNodesById}
         onVisibleEdgeCountChange={setVisibleEdgeCount}
         selectedEdgeIds={board.selection.edgeIds}
         size={canvasSize}
@@ -793,7 +872,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       <EdgeControlLayer
         edge={controlEdge}
         showToolbar={Boolean(selectedEdge)}
-        nodes={board.nodes}
+        nodes={previewNodesById}
         onEdgeStyleChange={updateSelectedEdgeStyle}
         onFixedPointPointerDown={beginFixedPointDrag}
         onFixedPointPointerUp={finishFixedPointDrag}
@@ -802,7 +881,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       <NodeDomLayer
         activeEditNodeId={editingNodeId}
         dragPreview={dragPreview}
-        nodeSizeOverrides={nodeSizeOverrides ?? {}}
+        nodeGeometryOverrides={nodeGeometryOverrides}
         nodes={nodes}
         onNodeClick={selectNode}
         onNodeDoubleClick={editNode}
@@ -823,6 +902,104 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       />
     </div>
   );
+}
+
+function applyNodePreviews(
+  nodes: Record<string, BoardNode>,
+  geometryOverrides: Partial<Record<NodeId, NodeGeometryOverride>>,
+  dragPreview: DragPreview | null
+): Record<string, BoardNode> {
+  let nextNodes = nodes;
+
+  const updateNode = (nodeId: NodeId, patch: Partial<Pick<BoardNode, "position" | "size">>): void => {
+    const node = nextNodes[nodeId];
+    if (!node) {
+      return;
+    }
+
+    if (nextNodes === nodes) {
+      nextNodes = { ...nodes };
+    }
+
+    nextNodes[nodeId] = {
+      ...node,
+      ...patch
+    };
+  };
+
+  for (const [nodeId, override] of Object.entries(geometryOverrides)) {
+    if (override) {
+      updateNode(nodeId, override);
+    }
+  }
+
+  if (dragPreview) {
+    for (const nodeId of dragPreview.nodeIds) {
+      const node = nextNodes[nodeId];
+      if (!node) {
+        continue;
+      }
+
+      updateNode(nodeId, {
+        position: {
+          x: node.position.x + dragPreview.delta.x,
+          y: node.position.y + dragPreview.delta.y
+        }
+      });
+    }
+  }
+
+  return nextNodes;
+}
+
+function createLinkPreviewEdge(sourceNodeId: NodeId, point: Point): BoardEdge {
+  return {
+    id: LINK_PREVIEW_EDGE_ID,
+    from: { type: "node", nodeId: sourceNodeId },
+    to: { type: "point", point },
+    fixedPoints: [],
+    pathType: defaultBoardSettings.edgeStyle.pathType,
+    arrow: defaultBoardSettings.edgeStyle.arrow,
+    stroke: { ...defaultBoardSettings.edgeStyle.stroke }
+  };
+}
+
+function getFallbackLinkPreviewPoint(sourceNode: BoardNode): Point {
+  return {
+    x: sourceNode.position.x + sourceNode.size.width + 80,
+    y: sourceNode.position.y + sourceNode.size.height / 2
+  };
+}
+
+function calculateResizeGeometry(resizeState: ResizeState, currentScreenPoint: Point, zoom: number): ResizePreview {
+  const delta = screenDeltaToWorldDelta(
+    {
+      x: currentScreenPoint.x - resizeState.startScreenPoint.x,
+      y: currentScreenPoint.y - resizeState.startScreenPoint.y
+    },
+    zoom
+  );
+  const resizeFromLeft = resizeState.corner.endsWith("left");
+  const resizeFromTop = resizeState.corner.startsWith("top");
+  const width = resizeFromLeft
+    ? Math.max(MIN_NODE_SIZE.width, resizeState.startSize.width - delta.x)
+    : Math.max(MIN_NODE_SIZE.width, resizeState.startSize.width + delta.x);
+  const height = resizeFromTop
+    ? Math.max(MIN_NODE_SIZE.height, resizeState.startSize.height - delta.y)
+    : Math.max(MIN_NODE_SIZE.height, resizeState.startSize.height + delta.y);
+
+  return {
+    nodeId: resizeState.nodeId,
+    position: {
+      x: resizeFromLeft
+        ? resizeState.startPosition.x + resizeState.startSize.width - width
+        : resizeState.startPosition.x,
+      y: resizeFromTop
+        ? resizeState.startPosition.y + resizeState.startSize.height - height
+        : resizeState.startPosition.y
+    },
+    size: { width, height }
+  };
 }
 
 function nodeBounds(node: BoardNode): Bounds {

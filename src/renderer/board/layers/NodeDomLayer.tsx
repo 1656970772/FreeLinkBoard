@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent, ReactElement } from "react";
 import type { BoardNode, NodeId, Point, Size, Viewport } from "../../../domain/board/types";
 import { boundsIntersect } from "../../../application/geometry/bounds";
@@ -11,16 +11,42 @@ export type NodeDomLayerProps = {
   size: Size;
   activeEditNodeId?: NodeId | null;
   dragPreview?: { nodeIds: NodeId[]; delta: Point } | null;
-  nodeSizeOverrides?: Partial<Record<NodeId, Size>>;
+  nodeGeometryOverrides?: Partial<Record<NodeId, NodeGeometryOverride>>;
   selectedNodeIds?: NodeId[];
   onNodeClick?: (nodeId: NodeId) => void;
   onNodeDoubleClick?: (nodeId: NodeId) => void;
   onNodePointerDown?: (nodeId: NodeId, event: PointerEvent<HTMLElement>) => void;
-  onNodeResizePointerDown?: (nodeId: NodeId, event: PointerEvent<HTMLElement>) => void;
+  onNodeResizePointerDown?: (nodeId: NodeId, corner: ResizeCorner, event: PointerEvent<HTMLElement>) => void;
   onTextDraftChange?: (nodeId: NodeId, text: string) => void;
   onTextCommit?: (nodeId: NodeId, text: string) => void;
   onVisibleNodeCountChange?: (count: number) => void;
 };
+
+export type ResizeCorner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
+type NodeGeometryOverride = {
+  position?: Point;
+  size?: Size;
+};
+
+const RESIZE_HANDLE_DWELL_MS = 500;
+const RESIZE_HANDLE_HOVER_TOLERANCE_PX = 6;
+
+const resizeCorners: Array<{
+  corner: ResizeCorner;
+  cursor: string;
+  position: {
+    top?: number;
+    right?: number;
+    bottom?: number;
+    left?: number;
+  };
+}> = [
+  { corner: "top-left", cursor: "nwse-resize", position: { left: -7, top: -7 } },
+  { corner: "top-right", cursor: "nesw-resize", position: { right: -7, top: -7 } },
+  { corner: "bottom-left", cursor: "nesw-resize", position: { bottom: -7, left: -7 } },
+  { corner: "bottom-right", cursor: "nwse-resize", position: { bottom: -7, right: -7 } }
+];
 
 function nodeBounds(node: BoardNode) {
   return {
@@ -67,7 +93,7 @@ export function getVisibleNodes(
 export function NodeDomLayer({
   activeEditNodeId,
   dragPreview,
-  nodeSizeOverrides,
+  nodeGeometryOverrides,
   nodes,
   onNodeClick,
   onNodeDoubleClick,
@@ -80,6 +106,9 @@ export function NodeDomLayer({
   size,
   viewport
 }: NodeDomLayerProps): ReactElement {
+  const [resizeHandleNodeId, setResizeHandleNodeId] = useState<NodeId | null>(null);
+  const resizeHoverIntentNodeIdRef = useRef<NodeId | null>(null);
+  const resizeHoverTimerRef = useRef<number | null>(null);
   const nodesById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const nodeIndex = useMemo(() => createNodeSpatialIndex(nodes), [nodes]);
   const visibleNodes = useMemo(
@@ -87,21 +116,85 @@ export function NodeDomLayer({
     [nodeIndex, nodes, nodesById, size, viewport]
   );
 
+  const clearResizeHoverIntent = (hideHandles = true): void => {
+    if (resizeHoverTimerRef.current) {
+      window.clearTimeout(resizeHoverTimerRef.current);
+      resizeHoverTimerRef.current = null;
+    }
+
+    resizeHoverIntentNodeIdRef.current = null;
+
+    if (hideHandles) {
+      setResizeHandleNodeId(null);
+    }
+  };
+
+  const scheduleResizeHandles = (nodeId: NodeId): void => {
+    if (resizeHandleNodeId === nodeId) {
+      return;
+    }
+
+    if (resizeHoverIntentNodeIdRef.current === nodeId && resizeHoverTimerRef.current) {
+      return;
+    }
+
+    clearResizeHoverIntent(false);
+    resizeHoverIntentNodeIdRef.current = nodeId;
+    resizeHoverTimerRef.current = window.setTimeout(() => {
+      resizeHoverTimerRef.current = null;
+
+      if (resizeHoverIntentNodeIdRef.current === nodeId) {
+        setResizeHandleNodeId(nodeId);
+      }
+    }, RESIZE_HANDLE_DWELL_MS);
+  };
+
+  const updateResizeHoverIntent = (
+    nodeId: NodeId,
+    isSelected: boolean,
+    isEditing: boolean,
+    event: PointerEvent<HTMLElement>
+  ): void => {
+    if (!isSelected || isEditing || !isPointerNearBorder(event.currentTarget, event)) {
+      if (resizeHandleNodeId === nodeId || resizeHoverIntentNodeIdRef.current === nodeId) {
+        clearResizeHoverIntent();
+      }
+      return;
+    }
+
+    scheduleResizeHandles(nodeId);
+  };
+
   useEffect(() => {
     onVisibleNodeCountChange?.(visibleNodes.length);
   }, [onVisibleNodeCountChange, visibleNodes.length]);
+
+  useEffect(
+    () => () => {
+      if (resizeHoverTimerRef.current) {
+        window.clearTimeout(resizeHoverTimerRef.current);
+        resizeHoverTimerRef.current = null;
+      }
+
+      resizeHoverIntentNodeIdRef.current = null;
+    },
+    []
+  );
 
   return (
     <div data-testid="node-dom-layer" style={{ inset: 0, pointerEvents: "none", position: "absolute" }}>
       {visibleNodes.map((node) => {
         const dragDelta = dragPreview?.nodeIds.includes(node.id) ? dragPreview.delta : null;
+        const geometryOverride = nodeGeometryOverrides?.[node.id];
+        const basePosition = geometryOverride?.position ?? node.position;
         const position = dragDelta
-          ? { x: node.position.x + dragDelta.x, y: node.position.y + dragDelta.y }
-          : node.position;
+          ? { x: basePosition.x + dragDelta.x, y: basePosition.y + dragDelta.y }
+          : basePosition;
         const screenPoint = worldToScreen(position, viewport);
-        const nodeSize = nodeSizeOverrides?.[node.id] ?? node.size;
+        const nodeSize = geometryOverride?.size ?? node.size;
         const isEditing = activeEditNodeId === node.id;
         const isSelected = selectedNodeIds.includes(node.id);
+        const showResizeHandles = isSelected && !isEditing && resizeHandleNodeId === node.id;
 
         return (
           <article
@@ -116,6 +209,13 @@ export function NodeDomLayer({
               event.stopPropagation();
               onNodeDoubleClick?.(node.id);
             }}
+            onPointerEnter={(event) => updateResizeHoverIntent(node.id, isSelected, isEditing, event)}
+            onPointerLeave={() => {
+              if (resizeHandleNodeId === node.id || resizeHoverIntentNodeIdRef.current === node.id) {
+                clearResizeHoverIntent();
+              }
+            }}
+            onPointerMove={(event) => updateResizeHoverIntent(node.id, isSelected, isEditing, event)}
             onPointerDown={(event) => {
               event.stopPropagation();
               onNodePointerDown?.(node.id, event);
@@ -124,10 +224,14 @@ export function NodeDomLayer({
               background: node.style.backgroundColor,
               border: `1px solid ${isSelected ? "#2f6f6a" : node.style.borderColor}`,
               boxSizing: "border-box",
-              boxShadow: isSelected ? "0 0 0 2px rgba(47, 111, 106, 0.2)" : "none",
+              boxShadow: isSelected
+                ? "0 0 0 4px rgba(47, 111, 106, 0.22), 0 10px 24px rgba(36, 34, 31, 0.14)"
+                : "none",
               color: node.style.textColor,
               height: nodeSize.height,
               left: 0,
+              outline: isSelected ? "2px solid #2f6f6a" : "none",
+              outlineOffset: 2,
               overflow: "visible",
               padding: "10px 12px",
               pointerEvents: "auto",
@@ -154,41 +258,68 @@ export function NodeDomLayer({
                 >
                   {node.text}
                 </div>
-                {isSelected ? (
-                  <button
-                    aria-label="Resize node"
-                    data-testid={`board-node-resize-${node.id}`}
-                    onClick={(event) => event.stopPropagation()}
-                    onDoubleClick={(event) => event.stopPropagation()}
-                    onPointerDown={(event) => {
-                      event.stopPropagation();
-                      onNodeResizePointerDown?.(node.id, event);
-                    }}
-                    style={{
-                      appearance: "none",
-                      background: "#2f6f6a",
-                      border: "2px solid #fffdf8",
-                      borderRadius: 3,
-                      bottom: -7,
-                      cursor: "nwse-resize",
-                      display: "block",
-                      height: 14,
-                      minWidth: 0,
-                      padding: 0,
-                      pointerEvents: "auto",
-                      position: "absolute",
-                      right: -7,
-                      width: 14
-                    }}
-                    type="button"
-                  />
-                ) : null}
+                {showResizeHandles
+                  ? resizeCorners.map(({ corner, cursor, position }) => (
+                      <button
+                        aria-label={`Resize node from ${corner}`}
+                        data-testid={`board-node-resize-${node.id}-${corner}`}
+                        key={corner}
+                        onClick={(event) => event.stopPropagation()}
+                        onDoubleClick={(event) => event.stopPropagation()}
+                        onPointerDown={(event) => {
+                          event.stopPropagation();
+                          onNodeResizePointerDown?.(node.id, corner, event);
+                        }}
+                        style={{
+                          ...position,
+                          appearance: "none",
+                          background: "#2f6f6a",
+                          border: "2px solid #fffdf8",
+                          borderRadius: 3,
+                          boxShadow: "0 2px 8px rgba(36, 34, 31, 0.18)",
+                          cursor,
+                          display: "block",
+                          height: 14,
+                          minWidth: 0,
+                          padding: 0,
+                          pointerEvents: "auto",
+                          position: "absolute",
+                          width: 14
+                        }}
+                        title={`Resize from ${corner}`}
+                        type="button"
+                      />
+                    ))
+                  : null}
               </>
             )}
           </article>
         );
       })}
     </div>
+  );
+}
+
+function isPointerNearBorder(element: HTMLElement, event: PointerEvent<HTMLElement>): boolean {
+  const rect = element.getBoundingClientRect();
+  const localX = event.clientX - rect.left;
+  const localY = event.clientY - rect.top;
+  const tolerance = RESIZE_HANDLE_HOVER_TOLERANCE_PX;
+  const insideExpandedBounds =
+    localX >= -tolerance &&
+    localY >= -tolerance &&
+    localX <= rect.width + tolerance &&
+    localY <= rect.height + tolerance;
+
+  if (!insideExpandedBounds) {
+    return false;
+  }
+
+  return (
+    Math.abs(localX) <= tolerance ||
+    Math.abs(localY) <= tolerance ||
+    Math.abs(rect.width - localX) <= tolerance ||
+    Math.abs(rect.height - localY) <= tolerance
   );
 }
 
@@ -209,6 +340,7 @@ function NodeTextEditor({ node, onTextCommit, onTextDraftChange }: NodeTextEdito
   return (
     <textarea
       aria-label="Node text"
+      className="node-text-editor"
       defaultValue={node.text}
       onBlur={(event) => onTextCommit?.(node.id, event.currentTarget.value)}
       onChange={(event) => onTextDraftChange?.(node.id, event.currentTarget.value)}
@@ -232,6 +364,7 @@ function NodeTextEditor({ node, onTextCommit, onTextDraftChange }: NodeTextEdito
         lineHeight: 1.25,
         margin: 0,
         outline: "none",
+        overflow: "auto",
         padding: 0,
         resize: "none",
         width: "100%"

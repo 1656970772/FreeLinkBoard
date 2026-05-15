@@ -14,4 +14,12 @@ describe("global canvas layout styles", () => {
     expect(cssBlock("body")).not.toMatch(/overflow\s*:\s*hidden/i);
     expect(cssBlock(".board-stage")).toMatch(/overflow\s*:\s*hidden/i);
   });
+
+  it("hides native scrollbars inside the node text editor", () => {
+    expect(cssBlock(".node-text-editor")).toMatch(/scrollbar-width\s*:\s*none/i);
+    expect(cssBlock(".node-text-editor")).toMatch(/-ms-overflow-style\s*:\s*none/i);
+    expect(cssBlock(".node-text-editor::-webkit-scrollbar")).toMatch(/display\s*:\s*none/i);
+    expect(cssBlock(".node-text-editor::-webkit-scrollbar")).toMatch(/width\s*:\s*0/i);
+    expect(cssBlock(".node-text-editor::-webkit-scrollbar")).toMatch(/height\s*:\s*0/i);
+  });
 });

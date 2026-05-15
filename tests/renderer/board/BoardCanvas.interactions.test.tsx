@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { nanoid } from "nanoid";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createEmptyBoardState, defaultBoardSettings } from "../../../src/domain/board/defaults";
 import type { BoardState } from "../../../src/domain/board/types";
 import { BoardCanvas } from "../../../src/renderer/board/BoardCanvas";
@@ -76,6 +77,47 @@ function parseTranslateScale(transform: string): { x: number; y: number; scale: 
   };
 }
 
+function mockNodeClientRect(node: HTMLElement): void {
+  vi.spyOn(node, "getBoundingClientRect").mockReturnValue({
+    bottom: 176,
+    height: 56,
+    left: 100,
+    right: 260,
+    top: 120,
+    width: 160,
+    x: 100,
+    y: 120,
+    toJSON: () => ({})
+  } as DOMRect);
+}
+
+function revealResizeHandles(node: HTMLElement): void {
+  fireEvent.pointerMove(node, { clientX: 101, clientY: 148, pointerId: 1 });
+  act(() => {
+    vi.advanceTimersByTime(500);
+  });
+}
+
+function expectLastEdgeMoveTo(point: { x: number; y: number }): void {
+  const lastMoveTo = mockCanvasContext.moveTo.mock.calls.at(-1);
+
+  expect(lastMoveTo).toBeDefined();
+  expect(lastMoveTo?.[0]).toBeCloseTo(point.x, 4);
+  expect(lastMoveTo?.[1]).toBeCloseTo(point.y, 4);
+}
+
+function expectCanvasMoveTo(point: { x: number; y: number }): void {
+  const matchingCall = mockCanvasContext.moveTo.mock.calls.find(
+    ([x, y]) => Math.abs(Number(x) - point.x) < 0.0001 && Math.abs(Number(y) - point.y) < 0.0001
+  );
+
+  expect(matchingCall).toBeDefined();
+}
+
+function expectCanvasLineTo(point: { x: number; y: number }): void {
+  expect(mockCanvasContext.lineTo).toHaveBeenCalledWith(point.x, point.y);
+}
+
 function createBoardWithNode(): BoardState {
   return createBoardWithNodes([
     {
@@ -139,6 +181,8 @@ function createBoardWithEdge(): BoardState {
 describe("BoardCanvas interactions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(nanoid).mockReset();
+    vi.mocked(nanoid).mockReturnValue("stable-node");
     resetStore();
     Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
       configurable: true,
@@ -150,6 +194,10 @@ describe("BoardCanvas interactions", () => {
     });
     HTMLElement.prototype.setPointerCapture = vi.fn();
     HTMLElement.prototype.releasePointerCapture = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("creates an editable selected node when double-clicking blank canvas", () => {
@@ -192,6 +240,19 @@ describe("BoardCanvas interactions", () => {
     expect(screen.getByRole("textbox")).toHaveValue("Existing");
   });
 
+  it("uses a chrome-free text editor while editing a node", () => {
+    resetStore(createBoardWithNode());
+    render(<StoreConnectedBoard />);
+
+    fireEvent.doubleClick(screen.getByTestId("board-node-node_1"));
+
+    expect(screen.getByRole("textbox")).toHaveClass("node-text-editor");
+    expect(screen.getByRole("textbox")).toHaveStyle({
+      overflow: "auto",
+      resize: "none"
+    });
+  });
+
   it("moves a selected node after left-button dragging", () => {
     resetStore({
       ...createBoardWithNode(),
@@ -211,6 +272,33 @@ describe("BoardCanvas interactions", () => {
     fireEvent.pointerUp(screen.getByTestId("board-canvas"), { clientX: 130, clientY: 150, pointerId: 1 });
 
     expect(useDocumentStore.getState().currentBoard?.nodes.node_1?.position).toEqual({ x: 130, y: 150 });
+  });
+
+  it("redraws connected edges while dragging a node preview", () => {
+    const board = createBoardWithEdge();
+    resetStore({
+      ...board,
+      edges: {
+        edge_1: {
+          ...board.edges.edge_1!,
+          arrow: "none"
+        }
+      },
+      selection: { nodeIds: ["node_1"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+    const canvas = screen.getByTestId("board-canvas");
+    const node = screen.getByTestId("board-node-node_1");
+
+    vi.clearAllMocks();
+    fireEvent.pointerDown(node, { button: 0, clientX: 100, clientY: 120, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 140, clientY: 120, pointerId: 1 });
+
+    expect(screen.getByTestId("board-node-node_1")).toHaveStyle({
+      transform: "translate(140px, 120px) scale(1)"
+    });
+    expectLastEdgeMoveTo({ x: 300, y: 148 });
+    expect(useDocumentStore.getState().currentBoard?.nodes.node_1?.position).toEqual({ x: 100, y: 120 });
   });
 
   it("keeps a node visible after repeated live drags", () => {
@@ -557,18 +645,47 @@ describe("BoardCanvas interactions", () => {
     });
   });
 
-  it("renders a resize handle for a selected non-editing node", () => {
+  it("shows resize corners only after dwelling near a selected node border", () => {
+    vi.useFakeTimers();
     resetStore({
       ...createBoardWithNode(),
       selection: { nodeIds: ["node_1"], edgeIds: [] }
     });
     render(<StoreConnectedBoard />);
+    const node = screen.getByTestId("board-node-node_1");
+    mockNodeClientRect(node);
 
-    expect(screen.getByTestId("board-node-resize-node_1")).toBeInTheDocument();
+    expect(node).toHaveStyle({
+      outline: "2px solid #2f6f6a"
+    });
+    expect(screen.queryByTestId("board-node-resize-node_1-top-left")).toBeNull();
+
+    fireEvent.pointerMove(node, { clientX: 180, clientY: 148, pointerId: 1 });
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+
+    expect(screen.queryByTestId("board-node-resize-node_1-top-left")).toBeNull();
+
+    fireEvent.pointerMove(node, { clientX: 101, clientY: 148, pointerId: 1 });
+    act(() => {
+      vi.advanceTimersByTime(499);
+    });
+
+    expect(screen.queryByTestId("board-node-resize-node_1-top-left")).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
+    expect(screen.getByTestId("board-node-resize-node_1-top-left")).toBeInTheDocument();
+    expect(screen.getByTestId("board-node-resize-node_1-top-right")).toBeInTheDocument();
+    expect(screen.getByTestId("board-node-resize-node_1-bottom-left")).toBeInTheDocument();
+    expect(screen.getByTestId("board-node-resize-node_1-bottom-right")).toBeInTheDocument();
 
     fireEvent.doubleClick(screen.getByTestId("board-node-node_1"));
 
-    expect(screen.queryByTestId("board-node-resize-node_1")).toBeNull();
+    expect(screen.queryByTestId("board-node-resize-node_1-top-left")).toBeNull();
   });
 
   it("renders node size as the full border box", () => {
@@ -585,20 +702,42 @@ describe("BoardCanvas interactions", () => {
     });
   });
 
-  it("resizes a selected node into fixed sizing by dragging the resize handle", () => {
+  it("previews node size and connected edge geometry while resizing", () => {
+    vi.useFakeTimers();
+    const board = createBoardWithEdge();
     resetStore({
-      ...createBoardWithNode(),
+      ...board,
+      edges: {
+        edge_1: {
+          ...board.edges.edge_1!,
+          arrow: "none"
+        }
+      },
       selection: { nodeIds: ["node_1"], edgeIds: [] }
     });
     render(<StoreConnectedBoard />);
+    const canvas = screen.getByTestId("board-canvas");
+    const node = screen.getByTestId("board-node-node_1");
 
-    fireEvent.pointerDown(screen.getByTestId("board-node-resize-node_1"), {
+    mockNodeClientRect(node);
+    revealResizeHandles(node);
+    vi.clearAllMocks();
+    fireEvent.pointerDown(screen.getByTestId("board-node-resize-node_1-bottom-right"), {
       button: 0,
       clientX: 260,
       clientY: 176,
       pointerId: 1
     });
-    fireEvent.pointerUp(screen.getByTestId("board-canvas"), { clientX: 300, clientY: 216, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 300, clientY: 216, pointerId: 1 });
+
+    expect(screen.getByTestId("board-node-node_1")).toHaveStyle({
+      width: "200px",
+      height: "96px"
+    });
+    expectLastEdgeMoveTo({ x: 300, y: 158 });
+    expect(useDocumentStore.getState().currentBoard?.nodes.node_1?.size).toEqual(defaultBoardSettings.textNodeSize);
+
+    fireEvent.pointerUp(canvas, { clientX: 300, clientY: 216, pointerId: 1 });
 
     expect(useDocumentStore.getState().currentBoard?.nodes.node_1?.size).toEqual({
       width: 200,
@@ -608,14 +747,88 @@ describe("BoardCanvas interactions", () => {
     expect(useDocumentStore.getState().saveStatus).toBe("dirty");
   });
 
-  it("supports undo and redo for node resize", () => {
+  it("resizes from the top-left corner by previewing and committing position with size", () => {
+    vi.useFakeTimers();
     resetStore({
       ...createBoardWithNode(),
       selection: { nodeIds: ["node_1"], edgeIds: [] }
     });
     render(<StoreConnectedBoard />);
+    const canvas = screen.getByTestId("board-canvas");
+    const node = screen.getByTestId("board-node-node_1");
 
-    fireEvent.pointerDown(screen.getByTestId("board-node-resize-node_1"), {
+    mockNodeClientRect(node);
+    revealResizeHandles(node);
+    fireEvent.pointerDown(screen.getByTestId("board-node-resize-node_1-top-left"), {
+      button: 0,
+      clientX: 100,
+      clientY: 120,
+      pointerId: 1
+    });
+    fireEvent.pointerMove(canvas, { clientX: 80, clientY: 110, pointerId: 1 });
+
+    expect(screen.getByTestId("board-node-node_1")).toHaveStyle({
+      transform: "translate(80px, 110px) scale(1)",
+      width: "180px",
+      height: "66px"
+    });
+    expect(useDocumentStore.getState().currentBoard?.nodes.node_1?.position).toEqual({ x: 100, y: 120 });
+    expect(useDocumentStore.getState().currentBoard?.nodes.node_1?.size).toEqual(defaultBoardSettings.textNodeSize);
+
+    fireEvent.pointerUp(canvas, { clientX: 80, clientY: 110, pointerId: 1 });
+
+    expect(useDocumentStore.getState().currentBoard?.nodes.node_1?.position).toEqual({ x: 80, y: 110 });
+    expect(useDocumentStore.getState().currentBoard?.nodes.node_1?.size).toEqual({ width: 180, height: 66 });
+    expect(useDocumentStore.getState().currentBoard?.nodes.node_1?.sizing).toBe("fixed");
+  });
+
+  it("cancels resize previews without committing history on pointer cancel", () => {
+    vi.useFakeTimers();
+    resetStore({
+      ...createBoardWithNode(),
+      selection: { nodeIds: ["node_1"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+    const canvas = screen.getByTestId("board-canvas");
+    const node = screen.getByTestId("board-node-node_1");
+
+    mockNodeClientRect(node);
+    revealResizeHandles(node);
+    fireEvent.pointerDown(screen.getByTestId("board-node-resize-node_1-bottom-right"), {
+      button: 0,
+      clientX: 260,
+      clientY: 176,
+      pointerId: 1
+    });
+    fireEvent.pointerMove(canvas, { clientX: 300, clientY: 216, pointerId: 1 });
+
+    expect(screen.getByTestId("board-node-node_1")).toHaveStyle({
+      width: "200px",
+      height: "96px"
+    });
+
+    fireEvent.pointerCancel(canvas, { clientX: 300, clientY: 216, pointerId: 1 });
+
+    expect(screen.getByTestId("board-node-node_1")).toHaveStyle({
+      width: "160px",
+      height: "56px"
+    });
+    expect(useDocumentStore.getState().currentBoard?.nodes.node_1?.size).toEqual(defaultBoardSettings.textNodeSize);
+    expect(useDocumentStore.getState().saveStatus).toBe("saved");
+  });
+
+  it("supports undo and redo for node resize", () => {
+    vi.useFakeTimers();
+    resetStore({
+      ...createBoardWithNode(),
+      selection: { nodeIds: ["node_1"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+    const node = screen.getByTestId("board-node-node_1");
+
+    mockNodeClientRect(node);
+    revealResizeHandles(node);
+    fireEvent.pointerDown(screen.getByTestId("board-node-resize-node_1-bottom-right"), {
       button: 0,
       clientX: 260,
       clientY: 176,
@@ -757,6 +970,76 @@ describe("BoardCanvas interactions", () => {
     expect(screen.getByRole("textbox")).toHaveFocus();
   });
 
+  it("places a Tab-linked node on the next vertical slot when the first right slot is occupied", () => {
+    resetStore({
+      ...createBoardWithNodes([
+        {
+          id: "node_1",
+          type: "text",
+          position: { x: 100, y: 120 },
+          size: defaultBoardSettings.textNodeSize,
+          sizing: "auto",
+          text: "Source",
+          style: defaultBoardSettings.textNodeStyle
+        },
+        {
+          id: "blocker",
+          type: "text",
+          position: { x: 320, y: 120 },
+          size: defaultBoardSettings.textNodeSize,
+          sizing: "auto",
+          text: "Blocker",
+          style: defaultBoardSettings.textNodeStyle
+        }
+      ]),
+      selection: { nodeIds: ["node_1"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+
+    fireEvent.keyDown(window, { code: "Tab" });
+
+    expect(useDocumentStore.getState().currentBoard?.nodes["node_stable-node"]?.position).toEqual({
+      x: 320,
+      y: 208
+    });
+  });
+
+  it("keeps consecutive Tab-created editable nodes moving rightward on the same row", () => {
+    vi.mocked(nanoid)
+      .mockReturnValueOnce("a")
+      .mockReturnValueOnce("edge-a")
+      .mockReturnValueOnce("b")
+      .mockReturnValueOnce("edge-b")
+      .mockReturnValueOnce("c")
+      .mockReturnValueOnce("edge-c");
+    resetStore({
+      ...createBoardWithNode(),
+      selection: { nodeIds: ["node_1"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+
+    fireEvent.keyDown(window, { code: "Tab" });
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Tab", code: "Tab" });
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Tab", code: "Tab" });
+
+    const board = useDocumentStore.getState().currentBoard;
+    expect(board?.nodes.node_a?.position).toEqual({ x: 320, y: 120 });
+    expect(board?.nodes.node_b?.position).toEqual({ x: 500, y: 120 });
+    expect(board?.nodes.node_c?.position).toEqual({ x: 680, y: 120 });
+    expect(board?.edges["edge_edge-a"]).toMatchObject({
+      from: { type: "node", nodeId: "node_1" },
+      to: { type: "node", nodeId: "node_a" }
+    });
+    expect(board?.edges["edge_edge-b"]).toMatchObject({
+      from: { type: "node", nodeId: "node_a" },
+      to: { type: "node", nodeId: "node_b" }
+    });
+    expect(board?.edges["edge_edge-c"]).toMatchObject({
+      from: { type: "node", nodeId: "node_b" },
+      to: { type: "node", nodeId: "node_c" }
+    });
+  });
+
   it("does not create a linked node on Tab unless exactly one node is selected", () => {
     resetStore({
       ...createBoardWithNodes([
@@ -840,6 +1123,30 @@ describe("BoardCanvas interactions", () => {
       nodeIds: [],
       edgeIds: ["edge_stable-node"]
     });
+  });
+
+  it("previews a Ctrl+L edge from the selected node to the live mouse position", () => {
+    resetStore({
+      ...createBoardWithNode(),
+      selection: { nodeIds: ["node_1"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+    const canvas = screen.getByTestId("board-canvas");
+
+    fireEvent.pointerMove(canvas, { clientX: 420, clientY: 240, pointerId: 1 });
+    vi.clearAllMocks();
+    fireEvent.keyDown(window, { code: "KeyL", ctrlKey: true });
+
+    expect(useDocumentStore.getState().currentBoard?.edges).toEqual({});
+    expectCanvasMoveTo({ x: 253.04347826086956, y: 176 });
+    expectCanvasLineTo({ x: 420, y: 240 });
+
+    vi.clearAllMocks();
+    fireEvent.pointerMove(canvas, { clientX: 500, clientY: 260, pointerId: 1 });
+
+    expect(useDocumentStore.getState().currentBoard?.edges).toEqual({});
+    expectCanvasMoveTo({ x: 260, y: 176 });
+    expectCanvasLineTo({ x: 500, y: 260 });
   });
 
   it("creates a node-to-point edge from Meta+L line mode when clicking blank canvas without dragging", () => {

@@ -251,6 +251,27 @@ describe("board interaction commands", () => {
     expect(afterUndo.updatedAt).toBe(INITIAL_TIME);
   });
 
+  it("can resize and reposition a text node when dragging a top or left corner", () => {
+    const node = createNode("node-1", 100, 120);
+    const board = createBoardWithNodes([node]);
+    const command = new ResizeNodeCommand({
+      clock: COMMAND_TIME,
+      id: "node-1",
+      position: { x: 80, y: 110 },
+      size: { width: 180, height: 66 }
+    });
+
+    const afterResize = command.execute(board);
+
+    expect(afterResize.nodes["node-1"]).toEqual({
+      ...node,
+      position: { x: 80, y: 110 },
+      size: { width: 180, height: 66 },
+      sizing: "fixed"
+    });
+    expect(command.undo(afterResize).nodes["node-1"]).toEqual(node);
+  });
+
   it("updates edge style fields and restores the previous edge on undo", () => {
     const board = createBoardWithEdge({
       id: "edge-1",

@@ -284,6 +284,7 @@ export class UpdateTextNodeCommand implements BoardCommand {
 
 export type ResizeNodeCommandInput = {
   id: NodeId;
+  position?: Point;
   size: Size;
   clock: string;
 };
@@ -311,6 +312,7 @@ export class ResizeNodeCommand implements BoardCommand {
         ...state.nodes,
         [node.id]: {
           ...node,
+          position: this.input.position ? { ...this.input.position } : node.position,
           size: { ...this.input.size },
           sizing: "fixed"
         }
