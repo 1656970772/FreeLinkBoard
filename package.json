@@ -10,6 +10,7 @@
     "build": "tsc -b --noEmit && electron-vite build",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
+    "perf:large-board": "vitest run tests/application/performance/largeBoardMetrics.test.ts",
     "test:watch": "vitest",
     "lint": "tsc -b --noEmit"
   },

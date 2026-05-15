@@ -10,6 +10,11 @@ export type EdgePath = {
   bounds: Bounds;
 };
 
+export type EdgePathCacheResult = {
+  hit: boolean;
+  path: EdgePath;
+};
+
 const EMPTY_BOUNDS: Bounds = { x: 0, y: 0, width: -1, height: -1 };
 
 export function createEdgePath(edge: BoardEdge, nodes: Record<string, BoardNode>): EdgePath {
@@ -26,16 +31,20 @@ export class EdgePathCache {
   private readonly pathsByEdgeId = new Map<string, EdgePath>();
 
   get(edge: BoardEdge, nodes: Record<string, BoardNode>): EdgePath {
+    return this.getWithStatus(edge, nodes).path;
+  }
+
+  getWithStatus(edge: BoardEdge, nodes: Record<string, BoardNode>): EdgePathCacheResult {
     const key = createEdgePathKey(edge, nodes);
     const cached = this.pathsByEdgeId.get(edge.id);
 
     if (cached?.key === key) {
-      return cached;
+      return { hit: true, path: cached };
     }
 
     const path = createEdgePath(edge, nodes);
     this.pathsByEdgeId.set(edge.id, path);
-    return path;
+    return { hit: false, path };
   }
 
   clear(): void {
