@@ -2,6 +2,8 @@ import { nanoid } from "nanoid";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, MouseEvent, PointerEvent, ReactElement, RefObject } from "react";
 import {
+  CreateEdgeCommand,
+  CreateLinkedTextNodeCommand,
   CreateTextNodeCommand,
   MoveNodesCommand,
   ResizeNodeCommand,
@@ -10,8 +12,9 @@ import {
 } from "../../application/commands/boardInteractionCommands";
 import { boundsIntersect } from "../../application/geometry/bounds";
 import type { Bounds } from "../../application/geometry/bounds";
+import { findLinkedNodePosition } from "../../application/geometry/linkedNodePlacement";
 import { screenToWorld } from "../../application/geometry/viewportTransform";
-import type { BoardNode, BoardState, NodeId, Point, Size } from "../../domain/board/types";
+import type { BoardNode, BoardState, EdgeEndpoint, NodeId, Point, Size } from "../../domain/board/types";
 import { useDocumentStore } from "../stores/documentStore";
 import { GridCanvasLayer } from "./layers/GridCanvasLayer";
 import { EdgeCanvasLayer } from "./layers/EdgeCanvasLayer";
@@ -115,6 +118,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   const [selectionBox, setSelectionBox] = useState<Bounds | null>(null);
   const [editingDraft, setEditingDraft] = useState<EditingDraft | null>(null);
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
+  const [linkSourceNodeId, setLinkSourceNodeId] = useState<NodeId | null>(null);
   const nodes = useMemo(() => Object.values(board.nodes), [board.nodes]);
   const edges = useMemo(() => Object.values(board.edges), [board.edges]);
   const nodeSizeOverrides = useMemo((): Partial<Record<NodeId, Size>> | undefined => {
@@ -143,7 +147,57 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         return;
       }
 
+      if (event.code === "Escape") {
+        setLinkSourceNodeId(null);
+        return;
+      }
+
+      if (event.code === "Tab" && !(event.ctrlKey || event.metaKey || event.altKey)) {
+        if (board.selection.nodeIds.length !== 1) {
+          return;
+        }
+
+        const sourceNodeId = board.selection.nodeIds[0];
+        if (!sourceNodeId) {
+          return;
+        }
+
+        const sourceNode = sourceNodeId ? board.nodes[sourceNodeId] : undefined;
+        if (!sourceNode) {
+          return;
+        }
+
+        event.preventDefault();
+        const nodeId = `node_${nanoid()}`;
+        runBoardCommand(
+          new CreateLinkedTextNodeCommand({
+            clock: new Date().toISOString(),
+            edgeId: `edge_${nanoid()}`,
+            nodeId,
+            position: findLinkedNodePosition(sourceNode, board.nodes),
+            sourceNodeId,
+            text: ""
+          })
+        );
+        setLinkSourceNodeId(null);
+        setEditingNodeId(nodeId);
+        setEditingDraft({ nodeId, text: "" });
+        return;
+      }
+
       if (!(event.ctrlKey || event.metaKey)) {
+        return;
+      }
+
+      if (event.code === "KeyL") {
+        if (board.selection.nodeIds.length !== 1) {
+          return;
+        }
+
+        event.preventDefault();
+        setEditingNodeId(null);
+        setEditingDraft(null);
+        setLinkSourceNodeId(board.selection.nodeIds[0] ?? null);
         return;
       }
 
@@ -151,6 +205,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         event.preventDefault();
         setEditingNodeId(null);
         setEditingDraft(null);
+        setLinkSourceNodeId(null);
         undoBoardCommand();
       }
 
@@ -158,13 +213,14 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         event.preventDefault();
         setEditingNodeId(null);
         setEditingDraft(null);
+        setLinkSourceNodeId(null);
         redoBoardCommand();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [redoBoardCommand, undoBoardCommand]);
+  }, [board.nodes, board.selection.nodeIds, redoBoardCommand, runBoardCommand, undoBoardCommand]);
 
   const createNodeFromBlankDoubleClick = (event: MouseEvent<HTMLDivElement>): void => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -367,6 +423,14 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
 
     const endScreenPoint = getLocalScreenPoint(event);
     if (screenDistance(selectionState.startScreenPoint, endScreenPoint) < POINTER_DRAG_THRESHOLD) {
+      if (linkSourceNodeId) {
+        createEdgeFromLinkSource({
+          type: "point",
+          point: screenToWorld(endScreenPoint, viewport)
+        });
+        return;
+      }
+
       selectNodes([]);
       return;
     }
@@ -395,7 +459,31 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       return;
     }
 
+    if (linkSourceNodeId) {
+      createEdgeFromLinkSource({ type: "node", nodeId });
+      return;
+    }
+
     selectNodes([nodeId]);
+  };
+
+  const createEdgeFromLinkSource = (to: EdgeEndpoint): void => {
+    if (!linkSourceNodeId || !board.nodes[linkSourceNodeId]) {
+      setLinkSourceNodeId(null);
+      return;
+    }
+
+    setEditingNodeId(null);
+    setEditingDraft(null);
+    setLinkSourceNodeId(null);
+    runBoardCommand(
+      new CreateEdgeCommand({
+        clock: new Date().toISOString(),
+        edgeId: `edge_${nanoid()}`,
+        from: { type: "node", nodeId: linkSourceNodeId },
+        to
+      })
+    );
   };
 
   const editNode = (nodeId: NodeId): void => {

@@ -645,4 +645,146 @@ describe("BoardCanvas interactions", () => {
 
     expect(screen.getByTestId("board-node-node_stable-node")).toBeTruthy();
   });
+
+  it("creates a linked editable text node to the right on Tab when one node is selected", () => {
+    resetStore({
+      ...createBoardWithNode(),
+      selection: { nodeIds: ["node_1"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+
+    fireEvent.keyDown(window, { code: "Tab" });
+
+    const board = useDocumentStore.getState().currentBoard;
+    expect(board?.nodes["node_stable-node"]?.position).toEqual({ x: 320, y: 120 });
+    expect(board?.edges["edge_stable-node"]).toMatchObject({
+      from: { type: "node", nodeId: "node_1" },
+      to: { type: "node", nodeId: "node_stable-node" }
+    });
+    expect(board?.selection).toEqual({ nodeIds: ["node_stable-node"], edgeIds: [] });
+    expect(screen.getByRole("textbox")).toHaveFocus();
+  });
+
+  it("does not create a linked node on Tab unless exactly one node is selected", () => {
+    resetStore({
+      ...createBoardWithNodes([
+        {
+          id: "node_1",
+          type: "text",
+          position: { x: 100, y: 120 },
+          size: defaultBoardSettings.textNodeSize,
+          sizing: "auto",
+          text: "First",
+          style: defaultBoardSettings.textNodeStyle
+        },
+        {
+          id: "node_2",
+          type: "text",
+          position: { x: 260, y: 180 },
+          size: defaultBoardSettings.textNodeSize,
+          sizing: "auto",
+          text: "Second",
+          style: defaultBoardSettings.textNodeStyle
+        }
+      ]),
+      selection: { nodeIds: ["node_1", "node_2"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+
+    fireEvent.keyDown(window, { code: "Tab" });
+
+    expect(useDocumentStore.getState().currentBoard?.nodes["node_stable-node"]).toBeUndefined();
+    expect(useDocumentStore.getState().currentBoard?.edges["edge_stable-node"]).toBeUndefined();
+  });
+
+  it("creates a node-to-node edge from Ctrl+L line mode when clicking another node", () => {
+    resetStore({
+      ...createBoardWithNodes([
+        {
+          id: "node_1",
+          type: "text",
+          position: { x: 100, y: 120 },
+          size: defaultBoardSettings.textNodeSize,
+          sizing: "auto",
+          text: "Source",
+          style: defaultBoardSettings.textNodeStyle
+        },
+        {
+          id: "node_2",
+          type: "text",
+          position: { x: 320, y: 120 },
+          size: defaultBoardSettings.textNodeSize,
+          sizing: "auto",
+          text: "Target",
+          style: defaultBoardSettings.textNodeStyle
+        }
+      ]),
+      selection: { nodeIds: ["node_1"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+
+    fireEvent.keyDown(window, { code: "KeyL", ctrlKey: true });
+    fireEvent.click(screen.getByTestId("board-node-node_2"));
+
+    expect(useDocumentStore.getState().currentBoard?.edges["edge_stable-node"]).toMatchObject({
+      from: { type: "node", nodeId: "node_1" },
+      to: { type: "node", nodeId: "node_2" }
+    });
+    expect(useDocumentStore.getState().currentBoard?.selection).toEqual({
+      nodeIds: [],
+      edgeIds: ["edge_stable-node"]
+    });
+  });
+
+  it("creates a node-to-point edge from Meta+L line mode when clicking blank canvas without dragging", () => {
+    resetStore({
+      ...createBoardWithNode(),
+      selection: { nodeIds: ["node_1"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+    const canvas = screen.getByTestId("board-canvas");
+
+    fireEvent.keyDown(window, { code: "KeyL", metaKey: true });
+    fireEvent.pointerDown(canvas, { button: 0, clientX: 420, clientY: 240, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { button: 0, clientX: 420, clientY: 240, pointerId: 1 });
+
+    expect(useDocumentStore.getState().currentBoard?.edges["edge_stable-node"]).toMatchObject({
+      from: { type: "node", nodeId: "node_1" },
+      to: { type: "point", point: { x: 420, y: 240 } }
+    });
+  });
+
+  it("cancels Ctrl+L line mode with Escape", () => {
+    resetStore({
+      ...createBoardWithNodes([
+        {
+          id: "node_1",
+          type: "text",
+          position: { x: 100, y: 120 },
+          size: defaultBoardSettings.textNodeSize,
+          sizing: "auto",
+          text: "Source",
+          style: defaultBoardSettings.textNodeStyle
+        },
+        {
+          id: "node_2",
+          type: "text",
+          position: { x: 320, y: 120 },
+          size: defaultBoardSettings.textNodeSize,
+          sizing: "auto",
+          text: "Target",
+          style: defaultBoardSettings.textNodeStyle
+        }
+      ]),
+      selection: { nodeIds: ["node_1"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+
+    fireEvent.keyDown(window, { code: "KeyL", ctrlKey: true });
+    fireEvent.keyDown(window, { code: "Escape" });
+    fireEvent.click(screen.getByTestId("board-node-node_2"));
+
+    expect(useDocumentStore.getState().currentBoard?.edges["edge_stable-node"]).toBeUndefined();
+    expect(useDocumentStore.getState().currentBoard?.selection.nodeIds).toEqual(["node_2"]);
+  });
 });
