@@ -50,7 +50,7 @@ describe("edge path cache", () => {
         { x: 280, y: 260 },
         { x: 460, y: 130 }
       ],
-      bounds: { x: 180, y: 130, width: 280, height: 130 }
+      bounds: { x: 148, y: 98, width: 344, height: 194 }
     });
   });
 

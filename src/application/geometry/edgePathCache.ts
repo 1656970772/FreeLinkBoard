@@ -92,11 +92,12 @@ function getPointsBounds(points: Point[]): Bounds {
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
+  const padding = 32;
 
   return {
-    x: minX,
-    y: minY,
-    width: maxX - minX,
-    height: maxY - minY
+    x: minX - padding,
+    y: minY - padding,
+    width: maxX - minX + padding * 2,
+    height: maxY - minY + padding * 2
   };
 }
