@@ -1,3 +1,4 @@
+import { BoardCanvas } from "../board/BoardCanvas";
 import { useDocumentStore } from "../stores/documentStore";
 
 export function BoardPage() {
@@ -17,7 +18,7 @@ export function BoardPage() {
         <span className="save-status">{saveStatus}</span>
       </header>
       <section className="board-stage">
-        <p>Board canvas foundation is ready.</p>
+        <BoardCanvas board={board} />
       </section>
     </main>
   );
