@@ -3,10 +3,12 @@ import { useDocumentStore } from "../stores/documentStore";
 
 export function HomePage() {
   const recentFiles = useDocumentStore((state) => state.recentFiles);
+  const fileError = useDocumentStore((state) => state.fileError);
   const createNewBoard = useDocumentStore((state) => state.createNewBoard);
   const openBoardDialog = useDocumentStore((state) => state.openBoardDialog);
   const loadRecentFiles = useDocumentStore((state) => state.loadRecentFiles);
   const loadBoard = useDocumentStore((state) => state.loadBoard);
+  const removeRecentFile = useDocumentStore((state) => state.removeRecentFile);
 
   useEffect(() => {
     void loadRecentFiles();
@@ -28,20 +30,39 @@ export function HomePage() {
         </button>
       </div>
 
+      {fileError ? (
+        <p className="file-alert" role="alert">
+          {fileError}
+        </p>
+      ) : null}
+
       <section className="recent-list" aria-label="Recent files">
         {recentFiles.length === 0 ? (
           <p className="empty-text">No recent whiteboards yet.</p>
         ) : (
           recentFiles.map((file) => (
-            <button
-              key={file.path}
-              className="recent-file"
-              type="button"
-              onClick={() => void loadBoard(file.path)}
-            >
-              <strong title={file.title}>{file.title}</strong>
-              <span title={file.path}>{file.path}</span>
-            </button>
+            <article key={file.path} className="recent-file">
+              <button
+                className="recent-file-open"
+                type="button"
+                aria-label={`Open ${file.title}`}
+                onClick={() => void loadBoard(file.path)}
+              >
+                <strong title={file.title}>{file.title}</strong>
+                <span title={file.path}>{file.path}</span>
+              </button>
+              <button
+                className="recent-file-remove"
+                type="button"
+                aria-label={`Remove ${file.title}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void removeRecentFile(file.path);
+                }}
+              >
+                Remove
+              </button>
+            </article>
           ))
         )}
       </section>

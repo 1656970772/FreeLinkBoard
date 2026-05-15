@@ -10,9 +10,11 @@ export type NodeDomLayerProps = {
   viewport: Viewport;
   size: Size;
   activeEditNodeId?: NodeId | null;
+  activeSearchNodeId?: NodeId | null;
   dragPreview?: { nodeIds: NodeId[]; delta: Point } | null;
   nodeGeometryOverrides?: Partial<Record<NodeId, NodeGeometryOverride>>;
   selectedNodeIds?: NodeId[];
+  searchMatchNodeIds?: NodeId[];
   onNodeClick?: (nodeId: NodeId) => void;
   onNodeDoubleClick?: (nodeId: NodeId) => void;
   onNodePointerDown?: (nodeId: NodeId, event: PointerEvent<HTMLElement>) => void;
@@ -29,7 +31,7 @@ type NodeGeometryOverride = {
   size?: Size;
 };
 
-const RESIZE_HANDLE_DWELL_MS = 500;
+const RESIZE_HANDLE_DWELL_MS = 250;
 const RESIZE_HANDLE_HOVER_TOLERANCE_PX = 6;
 
 const resizeCorners: Array<{
@@ -92,6 +94,7 @@ export function getVisibleNodes(
 
 export function NodeDomLayer({
   activeEditNodeId,
+  activeSearchNodeId,
   dragPreview,
   nodeGeometryOverrides,
   nodes,
@@ -102,6 +105,7 @@ export function NodeDomLayer({
   onTextDraftChange,
   onTextCommit,
   onVisibleNodeCountChange,
+  searchMatchNodeIds = [],
   selectedNodeIds = [],
   size,
   viewport
@@ -194,10 +198,12 @@ export function NodeDomLayer({
         const nodeSize = geometryOverride?.size ?? node.size;
         const isEditing = activeEditNodeId === node.id;
         const isSelected = selectedNodeIds.includes(node.id);
+        const searchHighlight = activeSearchNodeId === node.id ? "active" : searchMatchNodeIds.includes(node.id) ? "match" : "false";
         const showResizeHandles = isSelected && !isEditing && resizeHandleNodeId === node.id;
 
         return (
           <article
+            data-search-highlight={searchHighlight}
             data-selected={isSelected ? "true" : "false"}
             data-testid={`board-node-${node.id}`}
             key={node.id}
@@ -222,9 +228,13 @@ export function NodeDomLayer({
             }}
             style={{
               background: node.style.backgroundColor,
-              border: `1px solid ${isSelected ? "#2f6f6a" : node.style.borderColor}`,
+              border: `1px solid ${searchHighlight === "active" ? "#d14f2f" : isSelected ? "#2f6f6a" : node.style.borderColor}`,
               boxSizing: "border-box",
-              boxShadow: isSelected
+              boxShadow: searchHighlight === "active"
+                ? "0 0 0 4px rgba(209, 79, 47, 0.24), 0 10px 24px rgba(36, 34, 31, 0.14)"
+                : searchHighlight === "match"
+                  ? "0 0 0 3px rgba(209, 79, 47, 0.14)"
+                  : isSelected
                 ? "0 0 0 4px rgba(47, 111, 106, 0.22), 0 10px 24px rgba(36, 34, 31, 0.14)"
                 : "none",
               color: node.style.textColor,

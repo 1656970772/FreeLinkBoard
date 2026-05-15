@@ -3,9 +3,11 @@ import {
   CreateEdgeCommand,
   CreateLinkedTextNodeCommand,
   CreateTextNodeCommand,
+  DeleteBoardItemsCommand,
   InsertEdgeFixedPointCommand,
   MoveNodesCommand,
   MoveEdgeFixedPointCommand,
+  PasteBoardItemsCommand,
   ResizeNodeCommand,
   UpdateEdgeStyleCommand,
   UpdateTextNodeCommand,
@@ -135,6 +137,34 @@ describe("board interaction commands", () => {
     expect(afterUndo.updatedAt).toBe(INITIAL_TIME);
   });
 
+  it("creates linked text node edges with a supplied edge style and cloned stroke", () => {
+    const source = createNode("source", 100, 120, "Source");
+    const board = createBoardWithNodes([source]);
+    const edgeStyle = {
+      pathType: "straight" as const,
+      arrow: "both" as const,
+      stroke: { color: "#c43b64", width: 5, dash: "dashed" as const }
+    };
+    const command = new CreateLinkedTextNodeCommand({
+      clock: COMMAND_TIME,
+      edgeId: "edge-1",
+      edgeStyle,
+      nodeId: "node-2",
+      position: { x: 320, y: 120 },
+      sourceNodeId: "source",
+      text: "Linked"
+    });
+
+    const afterCreate = command.execute(board);
+    edgeStyle.stroke.color = "#000000";
+
+    expect(afterCreate.edges["edge-1"]).toMatchObject({
+      pathType: "straight",
+      arrow: "both",
+      stroke: { color: "#c43b64", width: 5, dash: "dashed" }
+    });
+  });
+
   it("creates a default edge between endpoints and selects the edge", () => {
     const board = createBoardWithNodes([createNode("source", 0, 0), createNode("target", 220, 0)]);
     const command = new CreateEdgeCommand({
@@ -154,6 +184,35 @@ describe("board interaction commands", () => {
       ...defaultBoardSettings.edgeStyle
     });
     expect(afterCreate.selection).toEqual({ nodeIds: [], edgeIds: ["edge-1"] });
+  });
+
+  it("creates an edge with a supplied edge style and cloned stroke", () => {
+    const board = createBoardWithNodes([createNode("source", 0, 0), createNode("target", 220, 0)]);
+    const edgeStyle = {
+      pathType: "roundedElbow" as const,
+      arrow: "none" as const,
+      stroke: { color: "#8a4fd1", width: 3, dash: "dashed" as const }
+    };
+    const command = new CreateEdgeCommand({
+      clock: COMMAND_TIME,
+      edgeId: "edge-1",
+      edgeStyle,
+      from: { type: "node", nodeId: "source" },
+      to: { type: "node", nodeId: "target" }
+    });
+
+    const afterCreate = command.execute(board);
+    edgeStyle.stroke.width = 99;
+
+    expect(afterCreate.edges["edge-1"]).toEqual({
+      id: "edge-1",
+      from: { type: "node", nodeId: "source" },
+      to: { type: "node", nodeId: "target" },
+      fixedPoints: [],
+      pathType: "roundedElbow",
+      arrow: "none",
+      stroke: { color: "#8a4fd1", width: 3, dash: "dashed" }
+    });
   });
 
   it("clones edge endpoint points and default stroke style", () => {
@@ -335,6 +394,120 @@ describe("board interaction commands", () => {
     expect(afterMove.edges["edge-1"]?.fixedPoints[0]).toEqual({ x: 190, y: 160 });
     expect(move.undo(afterMove).edges["edge-1"]).toEqual(afterInsert.edges["edge-1"]);
     expect(insert.undo(afterInsert).edges["edge-1"]).toEqual(board.edges["edge-1"]);
+  });
+
+  it("deletes selected board nodes and edges, including edges attached to deleted nodes, then restores them on undo", () => {
+    const first = createNode("first", 10, 20);
+    const second = createNode("second", 220, 20);
+    const third = createNode("third", 440, 20);
+    const attachedEdge: BoardEdge = {
+      id: "attached",
+      from: { type: "node", nodeId: "first" },
+      to: { type: "node", nodeId: "second" },
+      fixedPoints: [],
+      ...defaultBoardSettings.edgeStyle
+    };
+    const selectedEdge: BoardEdge = {
+      id: "selected",
+      from: { type: "node", nodeId: "second" },
+      to: { type: "node", nodeId: "third" },
+      fixedPoints: [],
+      ...defaultBoardSettings.edgeStyle
+    };
+    const untouchedEdge: BoardEdge = {
+      id: "untouched",
+      from: { type: "node", nodeId: "third" },
+      to: { type: "point", point: { x: 600, y: 60 } },
+      fixedPoints: [],
+      ...defaultBoardSettings.edgeStyle
+    };
+    const board: BoardState = {
+      ...createBoardWithNodes([first, second, third]),
+      edges: { attached: attachedEdge, selected: selectedEdge, untouched: untouchedEdge },
+      selection: { nodeIds: ["first"], edgeIds: ["selected"] }
+    };
+    const command = new DeleteBoardItemsCommand({
+      clock: COMMAND_TIME,
+      selection: board.selection
+    });
+
+    const afterDelete = command.execute(board);
+
+    expect(afterDelete.nodes).toEqual({ second, third });
+    expect(afterDelete.edges).toEqual({ untouched: untouchedEdge });
+    expect(afterDelete.selection).toEqual({ nodeIds: [], edgeIds: [] });
+    expect(afterDelete.updatedAt).toBe(COMMAND_TIME);
+
+    const afterUndo = command.undo(afterDelete);
+
+    expect(afterUndo.nodes).toEqual(board.nodes);
+    expect(afterUndo.edges).toEqual(board.edges);
+    expect(afterUndo.selection).toEqual(board.selection);
+    expect(afterUndo.updatedAt).toBe(INITIAL_TIME);
+  });
+
+  it("returns the same board state when deleting a selection with no existing items", () => {
+    const board = createBoardWithNodes([createNode("node-1", 0, 0)]);
+    const command = new DeleteBoardItemsCommand({
+      clock: COMMAND_TIME,
+      selection: { nodeIds: ["missing-node"], edgeIds: ["missing-edge"] }
+    });
+
+    const afterDelete = command.execute(board);
+
+    expect(afterDelete).toBe(board);
+    expect(command.undo(afterDelete)).toBe(afterDelete);
+  });
+
+  it("pastes board items, selects the pasted selection, and removes the new items on undo", () => {
+    const existing = createNode("existing", 0, 0);
+    const pastedNode = createNode("pasted", 260, 40, "Pasted");
+    const pastedEdge: BoardEdge = {
+      id: "pasted-edge",
+      from: { type: "node", nodeId: "existing" },
+      to: { type: "node", nodeId: "pasted" },
+      pathType: "straight",
+      arrow: "both",
+      stroke: { color: "#c43b64", width: 4, dash: "dashed" },
+      fixedPoints: [{ x: 180, y: 60 }]
+    };
+    const board = createBoardWithNodes([existing]);
+    const selection = { nodeIds: ["pasted"], edgeIds: ["pasted-edge"] };
+    const command = new PasteBoardItemsCommand({
+      clock: COMMAND_TIME,
+      edges: [pastedEdge],
+      nodes: [pastedNode],
+      selection
+    });
+
+    const afterPaste = command.execute(board);
+
+    expect(afterPaste.nodes).toEqual({ ...board.nodes, pasted: pastedNode });
+    expect(afterPaste.edges).toEqual({ "pasted-edge": pastedEdge });
+    expect(afterPaste.selection).toEqual(selection);
+    expect(afterPaste.updatedAt).toBe(COMMAND_TIME);
+
+    const afterUndo = command.undo(afterPaste);
+
+    expect(afterUndo.nodes).toEqual(board.nodes);
+    expect(afterUndo.edges).toEqual(board.edges);
+    expect(afterUndo.selection).toEqual(board.selection);
+    expect(afterUndo.updatedAt).toBe(INITIAL_TIME);
+  });
+
+  it("returns the same board state when pasting no items", () => {
+    const board = createBoardWithNodes([createNode("node-1", 0, 0)]);
+    const command = new PasteBoardItemsCommand({
+      clock: COMMAND_TIME,
+      edges: [],
+      nodes: [],
+      selection: { nodeIds: [], edgeIds: [] }
+    });
+
+    const afterPaste = command.execute(board);
+
+    expect(afterPaste).toBe(board);
+    expect(command.undo(afterPaste)).toBe(afterPaste);
   });
 
   it("does not change board state when resizing a missing node", () => {

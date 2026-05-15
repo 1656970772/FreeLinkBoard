@@ -39,13 +39,32 @@ export function assertFlbPath(path: unknown): string {
   return path;
 }
 
-export function assertSaveDocumentRequest(request: unknown): SaveDocumentRequest {
-  if (!isRecord(request)) throw new Error("Invalid save request payload");
-
-  const path = assertFlbPath(request.path);
-  if (!isBoardStateLike(request.state)) {
-    throw new Error("Invalid save request payload");
+export function normalizeFlbSavePath(path: unknown): string {
+  if (typeof path !== "string" || path.trim().length === 0) {
+    throw new Error("Expected a .flb file path");
   }
 
-  return { path, state: request.state };
+  if (extname(path).length === 0) {
+    return `${path}.flb`;
+  }
+
+  return assertFlbPath(path);
+}
+
+export function assertBoardState(state: unknown): BoardState {
+  if (!isBoardStateLike(state)) {
+    throw new Error("Invalid board state payload");
+  }
+
+  return state;
+}
+
+export function assertSaveDocumentRequest(request: unknown): SaveDocumentRequest {
+  if (!isRecord(request)) throw new Error("Invalid save request payload");
+  const path = assertFlbPath(request.path);
+  try {
+    return { path, state: assertBoardState(request.state) };
+  } catch {
+    throw new Error("Invalid save request payload");
+  }
 }

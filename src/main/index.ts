@@ -1,8 +1,16 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import { join } from "node:path";
-import { loadFlbFromPath, openFlbPathDialog, saveFlbToPath } from "./fileSystem";
-import { assertFlbPath, assertSaveDocumentRequest } from "./ipcValidation";
+import { loadFlbFromPath, openFlbPathDialog, saveFlbPathDialog, saveFlbToPath } from "./fileSystem";
+import { assertBoardState, assertFlbPath, assertSaveDocumentRequest, normalizeFlbSavePath } from "./ipcValidation";
 import { listRecentFiles, removeRecentFile, touchRecentFile } from "./recentFiles";
+import { resolvePreloadPath } from "./windowPaths";
+
+const fallbackBoardFileName = "Untitled Board.flb";
+
+function getSuggestedFileName(title: string): string {
+  const safeTitle = title.replace(/[<>:"/\\|?*\x00-\x1F]/g, "").trim();
+  return `${safeTitle || fallbackBoardFileName.replace(/\.flb$/u, "")}.flb`;
+}
 
 function registerIpcHandlers(): void {
   ipcMain.handle("flb:open-dialog", async () => {
@@ -11,7 +19,7 @@ function registerIpcHandlers(): void {
 
     const flbPath = assertFlbPath(path);
     const state = await loadFlbFromPath(flbPath);
-    await touchRecentFile({ path, title: state.title, openedAt: new Date().toISOString() });
+    await touchRecentFile({ path: flbPath, title: state.title, openedAt: new Date().toISOString() });
     return { canceled: false as const, path: flbPath, state };
   });
 
@@ -32,6 +40,21 @@ function registerIpcHandlers(): void {
     });
   });
 
+  ipcMain.handle("flb:save-as", async (_event, payload: unknown) => {
+    const state = assertBoardState(payload);
+    const path = await saveFlbPathDialog(getSuggestedFileName(state.title));
+    if (!path) return { canceled: true as const };
+
+    const flbPath = normalizeFlbSavePath(path);
+    await saveFlbToPath(flbPath, state);
+    await touchRecentFile({
+      path: flbPath,
+      title: state.title,
+      openedAt: new Date().toISOString()
+    });
+    return { canceled: false as const, path: flbPath };
+  });
+
   ipcMain.handle("recent:list", () => listRecentFiles());
   ipcMain.handle("recent:remove", (_event, path: unknown) => removeRecentFile(assertFlbPath(path)));
 }
@@ -44,7 +67,7 @@ const createWindow = (): void => {
     minHeight: 640,
     backgroundColor: "#fffdf8",
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: resolvePreloadPath(__dirname),
       contextIsolation: true,
       nodeIntegration: false
     }

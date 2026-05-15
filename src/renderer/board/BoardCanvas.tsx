@@ -27,11 +27,15 @@ import { EdgeCanvasLayer } from "./layers/EdgeCanvasLayer";
 import { InteractionOverlayLayer } from "./layers/InteractionOverlayLayer";
 import { NodeDomLayer, type ResizeCorner } from "./layers/NodeDomLayer";
 import { useCanvasViewport } from "./useCanvasViewport";
+import { useSearchStore } from "../stores/searchStore";
+import { useSettingsStore } from "../stores/settingsStore";
 
 export type BoardCanvasProps = {
+  activeSearchNodeId?: NodeId | null;
   board: BoardState;
   size?: Size;
   className?: string;
+  searchMatchNodeIds?: NodeId[];
   style?: CSSProperties;
 };
 
@@ -131,15 +135,29 @@ function useMeasuredSize(ref: RefObject<HTMLDivElement | null>, explicitSize?: S
   return explicitSize ?? measuredSize;
 }
 
-export function BoardCanvas({ board, className, size, style }: BoardCanvasProps): ReactElement {
+export function BoardCanvas({
+  activeSearchNodeId,
+  board,
+  className,
+  searchMatchNodeIds = [],
+  size,
+  style
+}: BoardCanvasProps): ReactElement {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasSize = useMeasuredSize(containerRef, size);
-  const { panByScreenDelta, viewport, zoomByScreenPoint } = useCanvasViewport(board.viewport);
+  const { panByScreenDelta, setViewport, viewport, zoomByScreenPoint } = useCanvasViewport(board.viewport);
   const runBoardCommand = useDocumentStore((state) => state.runBoardCommand);
   const selectNodes = useDocumentStore((state) => state.selectNodes);
   const selectEdges = useDocumentStore((state) => state.selectEdges);
   const undoBoardCommand = useDocumentStore((state) => state.undoBoardCommand);
   const redoBoardCommand = useDocumentStore((state) => state.redoBoardCommand);
+  const copySelection = useDocumentStore((state) => state.copySelection);
+  const deleteSelection = useDocumentStore((state) => state.deleteSelection);
+  const pasteClipboard = useDocumentStore((state) => state.pasteClipboard);
+  const saveCurrentBoardNow = useDocumentStore((state) => state.saveCurrentBoardNow);
+  const openSearch = useSearchStore((state) => state.openSearch);
+  const defaultEdgeStyle = useSettingsStore((state) => state.settings.defaultEdgeStyle);
+  const wheelZoomMode = useSettingsStore((state) => state.settings.wheelZoomMode);
   const [visibleEdgeCount, setVisibleEdgeCount] = useState(0);
   const [visibleNodeCount, setVisibleNodeCount] = useState(0);
   const [editingNodeId, setEditingNodeId] = useState<NodeId | null>(null);
@@ -167,8 +185,8 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       return edges;
     }
 
-    return [...edges, createLinkPreviewEdge(sourceNodeId, linkPreviewPoint)];
-  }, [board.nodes, edges, linkPreviewPoint, linkSourceNodeId]);
+    return [...edges, createLinkPreviewEdge(sourceNodeId, linkPreviewPoint, defaultEdgeStyle)];
+  }, [board.nodes, defaultEdgeStyle, edges, linkPreviewPoint, linkSourceNodeId]);
   const selectedEdge = useMemo((): BoardEdge | null => {
     if (board.selection.edgeIds.length !== 1) {
       return null;
@@ -211,6 +229,23 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     [board.nodes, dragPreview, nodeGeometryOverrides]
   );
 
+  useEffect(() => {
+    if (!activeSearchNodeId) {
+      return;
+    }
+
+    const node = board.nodes[activeSearchNodeId];
+    if (!node) {
+      return;
+    }
+
+    setViewport((current) => ({
+      ...current,
+      x: node.position.x + node.size.width / 2 - canvasSize.width / (2 * current.zoom),
+      y: node.position.y + node.size.height / 2 - canvasSize.height / (2 * current.zoom)
+    }));
+  }, [activeSearchNodeId, board.nodes, canvasSize.height, canvasSize.width, setViewport]);
+
   const createLinkedEditableTextNode = useCallback(
     (sourceNodeId: NodeId): boolean => {
       const sourceNode = board.nodes[sourceNodeId];
@@ -240,6 +275,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       runBoardCommand(
         new CreateLinkedTextNodeCommand({
           clock,
+          edgeStyle: defaultEdgeStyle,
           edgeId: `edge_${nanoid()}`,
           nodeId,
           position: findLinkedNodePosition(placementSource, placementNodes),
@@ -253,13 +289,41 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       setEditingDraft({ nodeId, text: "" });
       return true;
     },
-    [board.nodes, editingDraft, runBoardCommand]
+    [board.nodes, defaultEdgeStyle, editingDraft, runBoardCommand]
   );
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
       const target = event.target;
       const isPlainTab = event.code === "Tab" && !(event.ctrlKey || event.metaKey || event.altKey || event.shiftKey);
+      const hasCommandModifier = event.ctrlKey || event.metaKey;
+
+      if (hasCommandModifier && event.code === "KeyF") {
+        event.preventDefault();
+        openSearch();
+        return;
+      }
+
+      if (hasCommandModifier && event.code === "KeyS") {
+        event.preventDefault();
+        if (editingDraft?.nodeId) {
+          const node = board.nodes[editingDraft.nodeId];
+          if (node && node.text !== editingDraft.text) {
+            runBoardCommand(
+              new UpdateTextNodeCommand({
+                clock: new Date().toISOString(),
+                id: editingDraft.nodeId,
+                text: editingDraft.text
+              })
+            );
+          }
+          setEditingNodeId(null);
+          setEditingDraft(null);
+        }
+        void saveCurrentBoardNow();
+        return;
+      }
+
       if (
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
@@ -270,6 +334,12 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
             event.preventDefault();
           }
         }
+        return;
+      }
+
+      if (event.code === "Delete" || event.code === "Backspace") {
+        event.preventDefault();
+        deleteSelection();
         return;
       }
 
@@ -299,7 +369,19 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         return;
       }
 
-      if (!(event.ctrlKey || event.metaKey)) {
+      if (!hasCommandModifier) {
+        return;
+      }
+
+      if (event.code === "KeyC") {
+        event.preventDefault();
+        copySelection();
+        return;
+      }
+
+      if (event.code === "KeyV") {
+        event.preventDefault();
+        pasteClipboard();
         return;
       }
 
@@ -346,9 +428,16 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   }, [
     board.nodes,
     board.selection.nodeIds,
+    copySelection,
     createLinkedEditableTextNode,
+    deleteSelection,
     editingNodeId,
+    editingDraft,
+    openSearch,
+    pasteClipboard,
     redoBoardCommand,
+    runBoardCommand,
+    saveCurrentBoardNow,
     undoBoardCommand
   ]);
 
@@ -729,6 +818,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       new CreateEdgeCommand({
         clock: new Date().toISOString(),
         edgeId: `edge_${nanoid()}`,
+        edgeStyle: defaultEdgeStyle,
         from: { type: "node", nodeId: linkSourceNodeId },
         to
       })
@@ -815,7 +905,8 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   };
 
   const zoomFromWheel = useCallback((event: globalThis.WheelEvent): void => {
-    if (!(event.ctrlKey || event.metaKey)) {
+    const shouldZoom = wheelZoomMode === "directWheel" || event.ctrlKey || event.metaKey;
+    if (!shouldZoom) {
       return;
     }
 
@@ -827,7 +918,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
 
     const zoomFactor = event.deltaY < 0 ? 1.1 : 0.9;
     zoomByScreenPoint(getElementLocalScreenPoint(element, event.clientX, event.clientY), zoomFactor);
-  }, [zoomByScreenPoint]);
+  }, [wheelZoomMode, zoomByScreenPoint]);
 
   useEffect(() => {
     const element = containerRef.current;
@@ -890,6 +981,8 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         onVisibleNodeCountChange={setVisibleNodeCount}
         onTextDraftChange={updateNodeTextDraft}
         onTextCommit={commitNodeText}
+        activeSearchNodeId={activeSearchNodeId ?? null}
+        searchMatchNodeIds={searchMatchNodeIds}
         selectedNodeIds={board.selection.nodeIds}
         size={canvasSize}
         viewport={viewport}
@@ -952,15 +1045,19 @@ function applyNodePreviews(
   return nextNodes;
 }
 
-function createLinkPreviewEdge(sourceNodeId: NodeId, point: Point): BoardEdge {
+function createLinkPreviewEdge(
+  sourceNodeId: NodeId,
+  point: Point,
+  edgeStyle: Pick<BoardEdge, "pathType" | "arrow" | "stroke">
+): BoardEdge {
   return {
     id: LINK_PREVIEW_EDGE_ID,
     from: { type: "node", nodeId: sourceNodeId },
     to: { type: "point", point },
     fixedPoints: [],
-    pathType: defaultBoardSettings.edgeStyle.pathType,
-    arrow: defaultBoardSettings.edgeStyle.arrow,
-    stroke: { ...defaultBoardSettings.edgeStyle.stroke }
+    pathType: edgeStyle.pathType,
+    arrow: edgeStyle.arrow,
+    stroke: { ...edgeStyle.stroke }
   };
 }
 

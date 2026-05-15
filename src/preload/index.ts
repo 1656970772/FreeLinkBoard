@@ -3,7 +3,8 @@ import type {
   ElectronFileApi,
   OpenFlbDialogResult,
   RecentFile,
-  SaveDocumentRequest
+  SaveDocumentRequest,
+  SaveFlbAsResult
 } from "../shared/electronApi";
 import type { BoardState } from "../domain/board/types";
 
@@ -14,6 +15,7 @@ const api: ElectronFileApi = {
   platform: process.platform,
   openFlbDialog: () => invoke<OpenFlbDialogResult>("flb:open-dialog"),
   saveFlb: (request: SaveDocumentRequest) => invoke<void>("flb:save", request),
+  saveFlbAs: (state: BoardState) => invoke<SaveFlbAsResult>("flb:save-as", state),
   loadFlb: (path: string) => invoke<BoardState>("flb:load", path),
   listRecentFiles: () => invoke<RecentFile[]>("recent:list"),
   removeRecentFile: (path: string) => invoke<RecentFile[]>("recent:remove", path)

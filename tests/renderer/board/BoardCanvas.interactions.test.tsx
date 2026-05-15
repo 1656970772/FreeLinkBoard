@@ -6,6 +6,8 @@ import { createEmptyBoardState, defaultBoardSettings } from "../../../src/domain
 import type { BoardState } from "../../../src/domain/board/types";
 import { BoardCanvas } from "../../../src/renderer/board/BoardCanvas";
 import { useDocumentStore } from "../../../src/renderer/stores/documentStore";
+import { useSearchStore } from "../../../src/renderer/stores/searchStore";
+import { useSettingsStore } from "../../../src/renderer/stores/settingsStore";
 
 vi.mock("nanoid", () => ({
   nanoid: vi.fn(() => "stable-node")
@@ -94,7 +96,7 @@ function mockNodeClientRect(node: HTMLElement): void {
 function revealResizeHandles(node: HTMLElement): void {
   fireEvent.pointerMove(node, { clientX: 101, clientY: 148, pointerId: 1 });
   act(() => {
-    vi.advanceTimersByTime(500);
+    vi.advanceTimersByTime(250);
   });
 }
 
@@ -194,6 +196,8 @@ describe("BoardCanvas interactions", () => {
     });
     HTMLElement.prototype.setPointerCapture = vi.fn();
     HTMLElement.prototype.releasePointerCapture = vi.fn();
+    useSearchStore.getState().resetSearch();
+    useSettingsStore.getState().resetSettings();
   });
 
   afterEach(() => {
@@ -546,6 +550,56 @@ describe("BoardCanvas interactions", () => {
     expect(screen.getByTestId("interaction-overlay-layer").textContent).toContain("zoom 1.10");
   });
 
+  it("zooms with plain wheel when direct wheel zoom is enabled", () => {
+    useSettingsStore.getState().updateSettings({ wheelZoomMode: "directWheel" });
+    render(<StoreConnectedBoard />);
+    const canvas = screen.getByTestId("board-canvas");
+
+    fireEvent.wheel(canvas, { clientX: 320, clientY: 180, deltaY: -100 });
+
+    expect(screen.getByTestId("interaction-overlay-layer").textContent).toContain("zoom 1.10");
+  });
+
+  it("opens board search on Ctrl+F", () => {
+    render(<StoreConnectedBoard />);
+
+    fireEvent.keyDown(window, { code: "KeyF", ctrlKey: true });
+
+    expect(useSearchStore.getState().isSearchOpen).toBe(true);
+  });
+
+  it("deletes the selected board item on Delete", () => {
+    resetStore({
+      ...createBoardWithEdge(),
+      selection: { nodeIds: ["node_1"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+
+    fireEvent.keyDown(window, { code: "Delete" });
+
+    expect(useDocumentStore.getState().currentBoard?.nodes.node_1).toBeUndefined();
+    expect(useDocumentStore.getState().currentBoard?.edges.edge_1).toBeUndefined();
+  });
+
+  it("copies and pastes the selected board items with Ctrl+C and Ctrl+V", () => {
+    vi.mocked(nanoid).mockReset();
+    vi.mocked(nanoid)
+      .mockReturnValueOnce("copy-node-1")
+      .mockReturnValueOnce("copy-node-2")
+      .mockReturnValueOnce("copy-edge-1");
+    resetStore({
+      ...createBoardWithEdge(),
+      selection: { nodeIds: ["node_1", "node_2"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+
+    fireEvent.keyDown(window, { code: "KeyC", ctrlKey: true });
+    fireEvent.keyDown(window, { code: "KeyV", ctrlKey: true });
+
+    expect(Object.keys(useDocumentStore.getState().currentBoard?.nodes ?? {})).toHaveLength(4);
+    expect(Object.keys(useDocumentStore.getState().currentBoard?.edges ?? {})).toHaveLength(2);
+  });
+
   it("registers a non-passive wheel listener so browser page zoom stays blocked", () => {
     const addEventListenerSpy = vi.spyOn(HTMLDivElement.prototype, "addEventListener");
 
@@ -669,7 +723,7 @@ describe("BoardCanvas interactions", () => {
 
     fireEvent.pointerMove(node, { clientX: 101, clientY: 148, pointerId: 1 });
     act(() => {
-      vi.advanceTimersByTime(499);
+      vi.advanceTimersByTime(249);
     });
 
     expect(screen.queryByTestId("board-node-resize-node_1-top-left")).toBeNull();

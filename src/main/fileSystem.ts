@@ -1,4 +1,4 @@
-import { dialog } from "electron";
+import { dialog, type SaveDialogOptions } from "electron";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { parseFlbDocument, serializeFlbDocument } from "../application/document/flbCodec";
@@ -15,6 +15,19 @@ export async function openFlbPathDialog(): Promise<string | null> {
 
   if (result.canceled) return null;
   return result.filePaths[0] ?? null;
+}
+
+export async function saveFlbPathDialog(defaultPath?: string): Promise<string | null> {
+  const options: SaveDialogOptions = {
+    title: "Save FreeLinkBoard file",
+    filters: flbFilter
+  };
+  if (defaultPath) options.defaultPath = defaultPath;
+
+  const result = await dialog.showSaveDialog(options);
+
+  if (result.canceled) return null;
+  return result.filePath ?? null;
 }
 
 export async function loadFlbFromPath(path: string): Promise<BoardState> {

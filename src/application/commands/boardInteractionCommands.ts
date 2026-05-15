@@ -1,6 +1,7 @@
 import { defaultBoardSettings } from "../../domain/board/defaults";
 import type {
   BoardEdge,
+  BoardDefaults,
   BoardNode,
   BoardSelection,
   BoardState,
@@ -107,6 +108,7 @@ export type CreateLinkedTextNodeCommandInput = {
   position: Point;
   text: string;
   clock: string;
+  edgeStyle?: BoardDefaults["edgeStyle"];
 };
 
 export class CreateLinkedTextNodeCommand implements BoardCommand {
@@ -142,7 +144,8 @@ export class CreateLinkedTextNodeCommand implements BoardCommand {
     const edge = createDefaultEdge(
       this.input.edgeId,
       { type: "node", nodeId: this.input.sourceNodeId },
-      { type: "node", nodeId: this.input.nodeId }
+      { type: "node", nodeId: this.input.nodeId },
+      this.input.edgeStyle
     );
 
     return {
@@ -185,6 +188,7 @@ export type CreateEdgeCommandInput = {
   from: EdgeEndpoint;
   to: EdgeEndpoint;
   clock: string;
+  edgeStyle?: BoardDefaults["edgeStyle"];
 };
 
 export class CreateEdgeCommand implements BoardCommand {
@@ -201,7 +205,7 @@ export class CreateEdgeCommand implements BoardCommand {
     this.previousSelection = cloneSelection(state.selection);
     this.previousUpdatedAt = state.updatedAt;
 
-    const edge = createDefaultEdge(this.input.edgeId, this.input.from, this.input.to);
+    const edge = createDefaultEdge(this.input.edgeId, this.input.from, this.input.to, this.input.edgeStyle);
 
     return {
       ...state,
@@ -234,6 +238,163 @@ export type UpdateTextNodeCommandInput = {
   text: string;
   clock: string;
 };
+
+export type DeleteBoardItemsCommandInput = {
+  selection: BoardSelection;
+  clock: string;
+};
+
+export class DeleteBoardItemsCommand implements BoardCommand {
+  readonly name = "delete-board-items";
+
+  private previousNodes: Record<NodeId, BoardNode> | undefined;
+  private previousEdges: Record<EdgeId, BoardEdge> | undefined;
+  private previousSelection: BoardSelection | undefined;
+  private previousUpdatedAt: string | undefined;
+  private didDelete = false;
+
+  constructor(private readonly input: DeleteBoardItemsCommandInput) {}
+
+  execute(state: BoardState): BoardState {
+    this.didDelete = false;
+    const selectedNodeIds = new Set(this.input.selection.nodeIds);
+    const selectedEdgeIds = new Set(this.input.selection.edgeIds);
+
+    const nextNodes = { ...state.nodes };
+    for (const nodeId of selectedNodeIds) {
+      if (nodeId in nextNodes) {
+        delete nextNodes[nodeId];
+        this.didDelete = true;
+      }
+    }
+
+    const nextEdges = { ...state.edges };
+    for (const [edgeId, edge] of Object.entries(state.edges)) {
+      if (selectedEdgeIds.has(edgeId) || endpointReferencesDeletedNode(edge.from, selectedNodeIds) || endpointReferencesDeletedNode(edge.to, selectedNodeIds)) {
+        delete nextEdges[edgeId];
+        this.didDelete = true;
+      }
+    }
+
+    if (!this.didDelete) {
+      return state;
+    }
+
+    this.previousNodes = state.nodes;
+    this.previousEdges = state.edges;
+    this.previousSelection = cloneSelection(state.selection);
+    this.previousUpdatedAt = state.updatedAt;
+
+    return {
+      ...state,
+      nodes: nextNodes,
+      edges: nextEdges,
+      selection: { nodeIds: [], edgeIds: [] },
+      updatedAt: this.input.clock
+    };
+  }
+
+  undo(state: BoardState): BoardState {
+    if (!this.didDelete || !this.previousNodes || !this.previousEdges) {
+      return state;
+    }
+
+    return {
+      ...state,
+      nodes: this.previousNodes,
+      edges: this.previousEdges,
+      selection: this.previousSelection ?? state.selection,
+      updatedAt: this.previousUpdatedAt ?? state.updatedAt
+    };
+  }
+}
+
+export type PasteBoardItemsCommandInput = {
+  nodes: BoardNode[];
+  edges: BoardEdge[];
+  selection: BoardSelection;
+  clock: string;
+};
+
+export class PasteBoardItemsCommand implements BoardCommand {
+  readonly name = "paste-board-items";
+
+  private previousNodes: Record<NodeId, BoardNode> = {};
+  private previousEdges: Record<EdgeId, BoardEdge> = {};
+  private previousSelection: BoardSelection | undefined;
+  private previousUpdatedAt: string | undefined;
+  private didPaste = false;
+
+  constructor(private readonly input: PasteBoardItemsCommandInput) {}
+
+  execute(state: BoardState): BoardState {
+    this.previousNodes = {};
+    this.previousEdges = {};
+    this.didPaste = this.input.nodes.length > 0 || this.input.edges.length > 0;
+    if (!this.didPaste) {
+      return state;
+    }
+
+    const nextNodes = { ...state.nodes };
+    for (const node of this.input.nodes) {
+      const previousNode = state.nodes[node.id];
+      if (previousNode) {
+        this.previousNodes[node.id] = previousNode;
+      }
+      nextNodes[node.id] = cloneNode(node);
+    }
+
+    const nextEdges = { ...state.edges };
+    for (const edge of this.input.edges) {
+      const previousEdge = state.edges[edge.id];
+      if (previousEdge) {
+        this.previousEdges[edge.id] = previousEdge;
+      }
+      nextEdges[edge.id] = cloneEdge(edge);
+    }
+
+    this.previousSelection = cloneSelection(state.selection);
+    this.previousUpdatedAt = state.updatedAt;
+
+    return {
+      ...state,
+      nodes: nextNodes,
+      edges: nextEdges,
+      selection: cloneSelection(this.input.selection),
+      updatedAt: this.input.clock
+    };
+  }
+
+  undo(state: BoardState): BoardState {
+    if (!this.didPaste) {
+      return state;
+    }
+
+    const nextNodes = { ...state.nodes };
+    for (const node of this.input.nodes) {
+      delete nextNodes[node.id];
+    }
+    for (const node of Object.values(this.previousNodes)) {
+      nextNodes[node.id] = node;
+    }
+
+    const nextEdges = { ...state.edges };
+    for (const edge of this.input.edges) {
+      delete nextEdges[edge.id];
+    }
+    for (const edge of Object.values(this.previousEdges)) {
+      nextEdges[edge.id] = edge;
+    }
+
+    return {
+      ...state,
+      nodes: nextNodes,
+      edges: nextEdges,
+      selection: this.previousSelection ?? state.selection,
+      updatedAt: this.previousUpdatedAt ?? state.updatedAt
+    };
+  }
+}
 
 export class UpdateTextNodeCommand implements BoardCommand {
   readonly name = "update-text-node";
@@ -577,15 +738,43 @@ function cloneSelection(selection: BoardSelection): BoardSelection {
   };
 }
 
-function createDefaultEdge(edgeId: EdgeId, from: EdgeEndpoint, to: EdgeEndpoint): BoardEdge {
+function createDefaultEdge(
+  edgeId: EdgeId,
+  from: EdgeEndpoint,
+  to: EdgeEndpoint,
+  edgeStyle = defaultBoardSettings.edgeStyle
+): BoardEdge {
   return {
     id: edgeId,
     from: cloneEndpoint(from),
     to: cloneEndpoint(to),
     fixedPoints: [],
-    pathType: defaultBoardSettings.edgeStyle.pathType,
-    arrow: defaultBoardSettings.edgeStyle.arrow,
-    stroke: { ...defaultBoardSettings.edgeStyle.stroke }
+    pathType: edgeStyle.pathType,
+    arrow: edgeStyle.arrow,
+    stroke: { ...edgeStyle.stroke }
+  };
+}
+
+function endpointReferencesDeletedNode(endpoint: EdgeEndpoint, selectedNodeIds: Set<NodeId>): boolean {
+  return endpoint.type === "node" && selectedNodeIds.has(endpoint.nodeId);
+}
+
+function cloneNode(node: BoardNode): BoardNode {
+  return {
+    ...node,
+    position: { ...node.position },
+    size: { ...node.size },
+    style: { ...node.style }
+  };
+}
+
+function cloneEdge(edge: BoardEdge): BoardEdge {
+  return {
+    ...edge,
+    from: cloneEndpoint(edge.from),
+    to: cloneEndpoint(edge.to),
+    stroke: { ...edge.stroke },
+    fixedPoints: edge.fixedPoints.map((point) => ({ ...point }))
   };
 }
 
