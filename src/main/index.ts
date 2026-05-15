@@ -6,6 +6,12 @@ import { listRecentFiles, removeRecentFile, touchRecentFile } from "./recentFile
 import { resolvePreloadPath } from "./windowPaths";
 
 const fallbackBoardFileName = "Untitled Board.flb";
+const configuredUserDataPath = process.env.FREELINKBOARD_USER_DATA_DIR;
+const isPackaged = app.isPackaged;
+
+if (configuredUserDataPath) {
+  app.setPath("userData", configuredUserDataPath);
+}
 
 function getSuggestedFileName(title: string): string {
   const safeTitle = title.replace(/[<>:"/\\|?*\x00-\x1F]/g, "").trim();
@@ -69,11 +75,12 @@ const createWindow = (): void => {
     webPreferences: {
       preload: resolvePreloadPath(__dirname),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: false
     }
   });
 
-  if (process.env.ELECTRON_RENDERER_URL) {
+  if (!isPackaged && process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
     void window.loadFile(join(__dirname, "../renderer/index.html"));
