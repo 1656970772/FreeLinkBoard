@@ -1,0 +1,150 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+  color: #24221f;
+  background: #fffdf8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 960px;
+  min-height: 640px;
+}
+
+button {
+  height: 36px;
+  max-width: 100%;
+  padding: 0 14px;
+  border: 1px solid #cfc8bd;
+  border-radius: 6px;
+  background: #fffdf8;
+  color: #24221f;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: #2f6f6a;
+}
+
+.home-page {
+  min-height: 100vh;
+  background: #f7f5f0;
+  padding: 42px;
+}
+
+.home-header {
+  max-width: 760px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: #2f6f6a;
+  font-weight: 700;
+}
+
+h1 {
+  margin: 0;
+  font-size: 32px;
+  letter-spacing: 0;
+  line-height: 1.15;
+}
+
+p {
+  line-height: 1.6;
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.recent-list {
+  display: grid;
+  gap: 10px;
+  max-width: 860px;
+  margin-top: 24px;
+}
+
+.recent-file {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid #ddd7cf;
+  border-radius: 8px;
+  background: #fffdf8;
+  height: auto;
+  text-align: left;
+  white-space: normal;
+}
+
+.recent-file strong,
+.board-topbar strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-file span,
+.empty-text,
+.board-topbar span {
+  color: #68625a;
+  font-size: 13px;
+}
+
+.recent-file span,
+.board-topbar span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-page {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: 52px 1fr;
+}
+
+.board-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding: 0 18px;
+  border-bottom: 1px solid #ddd7cf;
+  background: #fffdf8;
+}
+
+.board-topbar div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.save-status {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #f5f1ea;
+}
+
+.board-stage {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    linear-gradient(#ece8df 1px, transparent 1px),
+    linear-gradient(90deg, #ece8df 1px, transparent 1px),
+    #f7f5f0;
+  background-size: 24px 24px;
+}
