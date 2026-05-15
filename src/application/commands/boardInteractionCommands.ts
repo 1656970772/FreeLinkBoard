@@ -103,8 +103,6 @@ export class UpdateTextNodeCommand implements BoardCommand {
     this.previousNode = node;
     this.previousUpdatedAt = state.updatedAt;
 
-    const estimatedSize = estimateTextNodeSize(this.input.text);
-
     return {
       ...state,
       nodes: {
@@ -112,10 +110,66 @@ export class UpdateTextNodeCommand implements BoardCommand {
         [node.id]: {
           ...node,
           text: this.input.text,
-          size: {
-            ...node.size,
-            height: estimatedSize.height
-          }
+          size:
+            node.sizing === "auto"
+              ? {
+                  ...node.size,
+                  height: estimateTextNodeSize(this.input.text).height
+                }
+              : node.size
+        }
+      },
+      updatedAt: this.input.clock
+    };
+  }
+
+  undo(state: BoardState): BoardState {
+    if (!this.previousNode) {
+      return state;
+    }
+
+    return {
+      ...state,
+      nodes: {
+        ...state.nodes,
+        [this.previousNode.id]: this.previousNode
+      },
+      updatedAt: this.previousUpdatedAt ?? state.updatedAt
+    };
+  }
+}
+
+export type ResizeNodeCommandInput = {
+  id: NodeId;
+  size: Size;
+  clock: string;
+};
+
+export class ResizeNodeCommand implements BoardCommand {
+  readonly name = "resize-node";
+
+  private previousNode: BoardNode | undefined;
+  private previousUpdatedAt: string | undefined;
+
+  constructor(private readonly input: ResizeNodeCommandInput) {}
+
+  execute(state: BoardState): BoardState {
+    const node = state.nodes[this.input.id];
+    if (!node) {
+      return state;
+    }
+
+    this.previousNode = node;
+    this.previousUpdatedAt = state.updatedAt;
+
+    return {
+      ...state,
+      nodes: {
+        ...state.nodes,
+        [node.id]: {
+          ...node,
+          size: { ...this.input.size },
+          sizing: "fixed"
         }
       },
       updatedAt: this.input.clock

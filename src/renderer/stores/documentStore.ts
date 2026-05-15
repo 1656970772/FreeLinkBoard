@@ -147,6 +147,10 @@ export const useDocumentStore = create<DocumentStore>((set, get) => ({
     if (!currentBoard) return;
 
     const nextBoard = ensureHistory(currentBoard).run(command);
+    if (nextBoard === currentBoard) {
+      return;
+    }
+
     set({ currentBoard: nextBoard, saveStatus: "dirty", fileError: null });
   },
 

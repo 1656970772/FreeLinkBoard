@@ -14,6 +14,7 @@ export type NodeDomLayerProps = {
   onNodeClick?: (nodeId: NodeId) => void;
   onNodeDoubleClick?: (nodeId: NodeId) => void;
   onNodePointerDown?: (nodeId: NodeId, event: PointerEvent<HTMLElement>) => void;
+  onNodeResizePointerDown?: (nodeId: NodeId, event: PointerEvent<HTMLElement>) => void;
   onTextCommit?: (nodeId: NodeId, text: string) => void;
   onVisibleNodeCountChange?: (count: number) => void;
 };
@@ -68,6 +69,7 @@ export function NodeDomLayer({
   onNodeClick,
   onNodeDoubleClick,
   onNodePointerDown,
+  onNodeResizePointerDown,
   onTextCommit,
   onVisibleNodeCountChange,
   selectedNodeIds = [],
@@ -113,11 +115,12 @@ export function NodeDomLayer({
             style={{
               background: node.style.backgroundColor,
               border: `1px solid ${isSelected ? "#2f6f6a" : node.style.borderColor}`,
+              boxSizing: "border-box",
               boxShadow: isSelected ? "0 0 0 2px rgba(47, 111, 106, 0.2)" : "none",
               color: node.style.textColor,
               height: node.size.height,
               left: 0,
-              overflow: "hidden",
+              overflow: "visible",
               padding: "10px 12px",
               pointerEvents: "auto",
               position: "absolute",
@@ -130,18 +133,49 @@ export function NodeDomLayer({
             {isEditing ? (
               <NodeTextEditor node={node} onTextCommit={onTextCommit} />
             ) : (
-              <div
-                data-testid={`board-node-content-${node.id}`}
-                style={{
-                  fontSize: isLowDetail ? 12 : 14,
-                  fontWeight: 600,
-                  lineHeight: 1.25,
-                  overflowWrap: "break-word",
-                  whiteSpace: isLowDetail ? "nowrap" : "pre-wrap"
-                }}
-              >
-                {isLowDetail ? simplifyText(node.text) : node.text}
-              </div>
+              <>
+                <div
+                  data-testid={`board-node-content-${node.id}`}
+                  style={{
+                    fontSize: isLowDetail ? 12 : 14,
+                    fontWeight: 600,
+                    lineHeight: 1.25,
+                    overflowWrap: "break-word",
+                    whiteSpace: isLowDetail ? "nowrap" : "pre-wrap"
+                  }}
+                >
+                  {isLowDetail ? simplifyText(node.text) : node.text}
+                </div>
+                {isSelected ? (
+                  <button
+                    aria-label="Resize node"
+                    data-testid={`board-node-resize-${node.id}`}
+                    onClick={(event) => event.stopPropagation()}
+                    onDoubleClick={(event) => event.stopPropagation()}
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                      onNodeResizePointerDown?.(node.id, event);
+                    }}
+                    style={{
+                      appearance: "none",
+                      background: "#2f6f6a",
+                      border: "2px solid #fffdf8",
+                      borderRadius: 3,
+                      bottom: -7,
+                      cursor: "nwse-resize",
+                      display: "block",
+                      height: 14,
+                      minWidth: 0,
+                      padding: 0,
+                      pointerEvents: "auto",
+                      position: "absolute",
+                      right: -7,
+                      width: 14
+                    }}
+                    type="button"
+                  />
+                ) : null}
+              </>
             )}
           </article>
         );

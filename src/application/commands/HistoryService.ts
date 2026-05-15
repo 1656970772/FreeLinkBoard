@@ -19,7 +19,12 @@ export class HistoryService {
   }
 
   run(command: BoardCommand): BoardState {
-    this.state = command.execute(this.state);
+    const nextState = command.execute(this.state);
+    if (nextState === this.state) {
+      return this.state;
+    }
+
+    this.state = nextState;
     this.undoStack.push(command);
     this.redoStack.length = 0;
     return this.state;

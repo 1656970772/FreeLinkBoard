@@ -55,6 +55,18 @@ class AddMarkerNodeCommand implements BoardCommand {
   }
 }
 
+class NoOpBoardCommand implements BoardCommand {
+  readonly name = "no-op";
+
+  execute(state: BoardState): BoardState {
+    return state;
+  }
+
+  undo(state: BoardState): BoardState {
+    return state;
+  }
+}
+
 describe("documentStore", () => {
   beforeEach(() => {
     resetStore();
@@ -116,6 +128,26 @@ describe("documentStore", () => {
     expect(useDocumentStore.getState().currentBoard?.nodes.marker).toBeUndefined();
     expect(useDocumentStore.getState().saveStatus).toBe("dirty");
 
+    useDocumentStore.getState().redoBoardCommand();
+
+    expect(useDocumentStore.getState().currentBoard?.nodes.marker?.text).toBe("Marker");
+  });
+
+  it("does not mark the board dirty or clear redo history for no-op commands", () => {
+    const board = createEmptyBoardState("board-1", "2026-05-15T02:00:00.000Z");
+    useDocumentStore.setState({
+      currentBoard: board,
+      saveStatus: "saved"
+    });
+
+    useDocumentStore.getState().runBoardCommand(new NoOpBoardCommand());
+
+    expect(useDocumentStore.getState().currentBoard).toBe(board);
+    expect(useDocumentStore.getState().saveStatus).toBe("saved");
+
+    useDocumentStore.getState().runBoardCommand(new AddMarkerNodeCommand());
+    useDocumentStore.getState().undoBoardCommand();
+    useDocumentStore.getState().runBoardCommand(new NoOpBoardCommand());
     useDocumentStore.getState().redoBoardCommand();
 
     expect(useDocumentStore.getState().currentBoard?.nodes.marker?.text).toBe("Marker");

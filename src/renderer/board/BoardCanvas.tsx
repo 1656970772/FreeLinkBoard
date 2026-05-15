@@ -4,10 +4,13 @@ import type { CSSProperties, MouseEvent, PointerEvent, ReactElement, RefObject, 
 import {
   CreateTextNodeCommand,
   MoveNodesCommand,
+  ResizeNodeCommand,
   UpdateTextNodeCommand
 } from "../../application/commands/boardInteractionCommands";
+import { boundsIntersect } from "../../application/geometry/bounds";
+import type { Bounds } from "../../application/geometry/bounds";
 import { screenToWorld } from "../../application/geometry/viewportTransform";
-import type { BoardState, NodeId, Point, Size } from "../../domain/board/types";
+import type { BoardNode, BoardState, NodeId, Point, Size } from "../../domain/board/types";
 import { useDocumentStore } from "../stores/documentStore";
 import { GridCanvasLayer } from "./layers/GridCanvasLayer";
 import { EdgeCanvasLayer } from "./layers/EdgeCanvasLayer";
@@ -23,10 +26,23 @@ export type BoardCanvasProps = {
 };
 
 const defaultSize: Size = { width: 960, height: 640 };
+const POINTER_DRAG_THRESHOLD = 4;
+const MIN_NODE_SIZE: Size = { width: 96, height: 44 };
 
 type DragState = {
   nodeIds: NodeId[];
   startScreenPoint: Point;
+};
+
+type SelectionBoxState = {
+  currentScreenPoint: Point;
+  startScreenPoint: Point;
+};
+
+type ResizeState = {
+  nodeId: NodeId;
+  startScreenPoint: Point;
+  startSize: Size;
 };
 
 function useMeasuredSize(ref: RefObject<HTMLDivElement | null>, explicitSize?: Size): Size {
@@ -82,6 +98,10 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   const panStartRef = useRef<Point | null>(null);
   const panCaptureRef = useRef<HTMLElement | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
+  const suppressNextNodeClickRef = useRef(false);
+  const resizeStateRef = useRef<ResizeState | null>(null);
+  const selectionBoxRef = useRef<SelectionBoxState | null>(null);
+  const [selectionBox, setSelectionBox] = useState<Bounds | null>(null);
   const nodes = useMemo(() => Object.values(board.nodes), [board.nodes]);
   const edges = useMemo(() => Object.values(board.edges), [board.edges]);
 
@@ -132,8 +152,24 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     setEditingNodeId(nodeId);
   };
 
+  const getLocalScreenPoint = (event: PointerEvent<HTMLDivElement> | MouseEvent<HTMLDivElement>): Point => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return {
+      x: event.clientX - bounds.left,
+      y: event.clientY - bounds.top
+    };
+  };
+
   const beginPan = (event: PointerEvent<HTMLDivElement>): void => {
     if (event.button !== 1 && event.button !== 2) {
+      if (event.button === 0) {
+        event.currentTarget.setPointerCapture(event.pointerId);
+        const startScreenPoint = getLocalScreenPoint(event);
+        selectionBoxRef.current = {
+          currentScreenPoint: startScreenPoint,
+          startScreenPoint
+        };
+      }
       return;
     }
 
@@ -165,15 +201,48 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     };
   };
 
-  const updatePan = (event: PointerEvent<HTMLDivElement>): void => {
-    const panStart = panStartRef.current;
-    if (!panStart) {
+  const beginNodeResize = (nodeId: NodeId, event: PointerEvent<HTMLElement>): void => {
+    if (event.button !== 0) {
       return;
     }
 
-    const nextPoint = { x: event.clientX, y: event.clientY };
-    panByScreenDelta({ x: nextPoint.x - panStart.x, y: nextPoint.y - panStart.y });
-    panStartRef.current = nextPoint;
+    const node = board.nodes[nodeId];
+    if (!node) {
+      return;
+    }
+
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    resizeStateRef.current = {
+      nodeId,
+      startScreenPoint: { x: event.clientX, y: event.clientY },
+      startSize: node.size
+    };
+  };
+
+  const updatePointerInteraction = (event: PointerEvent<HTMLDivElement>): void => {
+    const panStart = panStartRef.current;
+    if (panStart) {
+      const nextPoint = { x: event.clientX, y: event.clientY };
+      panByScreenDelta({ x: nextPoint.x - panStart.x, y: nextPoint.y - panStart.y });
+      panStartRef.current = nextPoint;
+      return;
+    }
+
+    const selectionState = selectionBoxRef.current;
+    if (!selectionState) {
+      return;
+    }
+
+    const currentScreenPoint = getLocalScreenPoint(event);
+    selectionBoxRef.current = {
+      ...selectionState,
+      currentScreenPoint
+    };
+
+    if (screenDistance(selectionState.startScreenPoint, currentScreenPoint) >= POINTER_DRAG_THRESHOLD) {
+      setSelectionBox(normalizeBounds(selectionState.startScreenPoint, currentScreenPoint));
+    }
   };
 
   const finishNodeDrag = (event: PointerEvent<HTMLDivElement>): void => {
@@ -192,11 +261,43 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       return;
     }
 
+    suppressNextNodeClickRef.current = true;
     runBoardCommand(
       new MoveNodesCommand({
         clock: new Date().toISOString(),
         delta,
         ids: dragState.nodeIds
+      })
+    );
+  };
+
+  const finishNodeResize = (event: PointerEvent<HTMLDivElement>): void => {
+    const resizeState = resizeStateRef.current;
+    if (!resizeState) {
+      return;
+    }
+
+    resizeStateRef.current = null;
+    const nextSize = {
+      width: Math.max(
+        MIN_NODE_SIZE.width,
+        resizeState.startSize.width + (event.clientX - resizeState.startScreenPoint.x) / viewport.zoom
+      ),
+      height: Math.max(
+        MIN_NODE_SIZE.height,
+        resizeState.startSize.height + (event.clientY - resizeState.startScreenPoint.y) / viewport.zoom
+      )
+    };
+
+    if (nextSize.width === resizeState.startSize.width && nextSize.height === resizeState.startSize.height) {
+      return;
+    }
+
+    runBoardCommand(
+      new ResizeNodeCommand({
+        clock: new Date().toISOString(),
+        id: resizeState.nodeId,
+        size: nextSize
       })
     );
   };
@@ -212,12 +313,45 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     panCaptureRef.current = null;
   };
 
+  const finishSelectionBox = (event: PointerEvent<HTMLDivElement>): void => {
+    const selectionState = selectionBoxRef.current;
+    if (!selectionState) {
+      return;
+    }
+
+    selectionBoxRef.current = null;
+    setSelectionBox(null);
+
+    const endScreenPoint = getLocalScreenPoint(event);
+    if (screenDistance(selectionState.startScreenPoint, endScreenPoint) < POINTER_DRAG_THRESHOLD) {
+      selectNodes([]);
+      return;
+    }
+
+    const worldBounds = screenBoundsToWorldBounds(
+      normalizeBounds(selectionState.startScreenPoint, endScreenPoint),
+      viewport
+    );
+    const selectedNodeIds = nodes
+      .filter((node) => boundsIntersect(nodeBounds(node), worldBounds))
+      .map((node) => node.id);
+
+    selectNodes(selectedNodeIds);
+  };
+
   const finishPointerInteraction = (event: PointerEvent<HTMLDivElement>): void => {
+    finishNodeResize(event);
     finishNodeDrag(event);
+    finishSelectionBox(event);
     endPan(event);
   };
 
   const selectNode = (nodeId: NodeId): void => {
+    if (suppressNextNodeClickRef.current) {
+      suppressNextNodeClickRef.current = false;
+      return;
+    }
+
     selectNodes([nodeId]);
   };
 
@@ -256,7 +390,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       ref={containerRef}
       onContextMenu={(event) => event.preventDefault()}
       onPointerDown={beginPan}
-      onPointerMove={updatePan}
+      onPointerMove={updatePointerInteraction}
       onPointerUp={finishPointerInteraction}
       onPointerCancel={finishPointerInteraction}
       onDoubleClick={createNodeFromBlankDoubleClick}
@@ -285,6 +419,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         onNodeClick={selectNode}
         onNodeDoubleClick={editNode}
         onNodePointerDown={beginNodeDrag}
+        onNodeResizePointerDown={beginNodeResize}
         onVisibleNodeCountChange={setVisibleNodeCount}
         onTextCommit={commitNodeText}
         selectedNodeIds={board.selection.nodeIds}
@@ -292,10 +427,46 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
         viewport={viewport}
       />
       <InteractionOverlayLayer
+        selectionBox={selectionBox}
         viewport={viewport}
         visibleEdgeCount={visibleEdgeCount}
         visibleNodeCount={visibleNodeCount}
       />
     </div>
   );
+}
+
+function nodeBounds(node: BoardNode): Bounds {
+  return {
+    x: node.position.x,
+    y: node.position.y,
+    width: node.size.width,
+    height: node.size.height
+  };
+}
+
+function normalizeBounds(first: Point, second: Point): Bounds {
+  return {
+    x: Math.min(first.x, second.x),
+    y: Math.min(first.y, second.y),
+    width: Math.abs(second.x - first.x),
+    height: Math.abs(second.y - first.y)
+  };
+}
+
+function screenBoundsToWorldBounds(bounds: Bounds, viewport: BoardState["viewport"]): Bounds {
+  const topLeft = screenToWorld({ x: bounds.x, y: bounds.y }, viewport);
+  const bottomRight = screenToWorld(
+    {
+      x: bounds.x + bounds.width,
+      y: bounds.y + bounds.height
+    },
+    viewport
+  );
+
+  return normalizeBounds(topLeft, bottomRight);
+}
+
+function screenDistance(first: Point, second: Point): number {
+  return Math.hypot(second.x - first.x, second.y - first.y);
 }

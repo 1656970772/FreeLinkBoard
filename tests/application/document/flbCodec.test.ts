@@ -53,6 +53,39 @@ describe("flb codec", () => {
     });
   });
 
+  it("round-trips fixed-size text node dimensions and sizing", () => {
+    const board = {
+      ...createEmptyBoardState("board-1", "2026-05-15T00:00:00.000Z"),
+      nodes: {
+        node_fixed: {
+          id: "node_fixed",
+          type: "text" as const,
+          position: { x: 40, y: 80 },
+          size: { width: 240, height: 96 },
+          sizing: "fixed" as const,
+          text: "Fixed box",
+          style: {
+            borderColor: "#24221f",
+            backgroundColor: "#fffdf8",
+            textColor: "#24221f"
+          }
+        }
+      }
+    };
+
+    const dto = serializeFlbDocument(board);
+    const parsed = parseFlbDocument(dto);
+
+    expect(dto.nodes[0]).toMatchObject({
+      id: "node_fixed",
+      width: 240,
+      height: 96,
+      sizing: "fixed"
+    });
+    expect(parsed.nodes.node_fixed?.size).toEqual({ width: 240, height: 96 });
+    expect(parsed.nodes.node_fixed?.sizing).toBe("fixed");
+  });
+
   it("throws a readable error for unsupported versions", () => {
     expect(() => parseFlbDocument({ version: 99 })).toThrow("Unsupported .flb version: 99");
   });

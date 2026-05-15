@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CreateTextNodeCommand,
   MoveNodesCommand,
+  ResizeNodeCommand,
   UpdateTextNodeCommand,
   estimateTextNodeSize
 } from "../../../src/application/commands/boardInteractionCommands";
@@ -94,6 +95,66 @@ describe("board interaction commands", () => {
 
     expect(afterUndo.nodes["node-1"]).toEqual(node);
     expect(afterUndo.updatedAt).toBe(INITIAL_TIME);
+  });
+
+  it("keeps fixed-size text nodes at their existing size when text changes", () => {
+    const fixedNode = {
+      ...createNode("node-1", 0, 0, "Before"),
+      size: { width: 240, height: 80 },
+      sizing: "fixed" as const
+    };
+    const board = createBoardWithNodes([fixedNode]);
+    const command = new UpdateTextNodeCommand({
+      clock: COMMAND_TIME,
+      id: "node-1",
+      text: "Line one\nLine two\nLine three\nLine four"
+    });
+
+    const afterUpdate = command.execute(board);
+
+    expect(afterUpdate.nodes["node-1"]).toEqual({
+      ...fixedNode,
+      text: "Line one\nLine two\nLine three\nLine four"
+    });
+    expect(afterUpdate.nodes["node-1"]?.size).toEqual({ width: 240, height: 80 });
+  });
+
+  it("resizes a text node into fixed sizing and can undo the resize", () => {
+    const node = createNode("node-1", 0, 0);
+    const board = createBoardWithNodes([node]);
+    const command = new ResizeNodeCommand({
+      clock: COMMAND_TIME,
+      id: "node-1",
+      size: { width: 260, height: 120 }
+    });
+
+    const afterResize = command.execute(board);
+
+    expect(afterResize.nodes["node-1"]).toEqual({
+      ...node,
+      size: { width: 260, height: 120 },
+      sizing: "fixed"
+    });
+    expect(afterResize.updatedAt).toBe(COMMAND_TIME);
+
+    const afterUndo = command.undo(afterResize);
+
+    expect(afterUndo.nodes["node-1"]).toEqual(node);
+    expect(afterUndo.updatedAt).toBe(INITIAL_TIME);
+  });
+
+  it("does not change board state when resizing a missing node", () => {
+    const board = createBoardWithNodes([createNode("node-1", 0, 0)]);
+    const command = new ResizeNodeCommand({
+      clock: COMMAND_TIME,
+      id: "missing",
+      size: { width: 260, height: 120 }
+    });
+
+    const afterResize = command.execute(board);
+
+    expect(afterResize).toBe(board);
+    expect(command.undo(afterResize)).toBe(afterResize);
   });
 
   it("moves one or more nodes by a world delta and can undo the move", () => {

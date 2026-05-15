@@ -19,6 +19,18 @@ class RenameBoardCommand implements BoardCommand {
   }
 }
 
+class NoOpCommand implements BoardCommand {
+  readonly name = "no-op";
+
+  execute(state: BoardState): BoardState {
+    return state;
+  }
+
+  undo(state: BoardState): BoardState {
+    return state;
+  }
+}
+
 describe("HistoryService", () => {
   it("runs commands and supports undo and redo", () => {
     const history = new HistoryService(createEmptyBoardState("board-1"));
@@ -41,6 +53,16 @@ describe("HistoryService", () => {
     history.run(new RenameBoardCommand("B"));
 
     expect(history.redo().title).toBe("B");
+  });
+
+  it("does not push no-op commands or clear redo history", () => {
+    const history = new HistoryService(createEmptyBoardState("board-1"));
+
+    history.run(new RenameBoardCommand("Systems"));
+    history.undo();
+    history.run(new NoOpCommand());
+
+    expect(history.redo().title).toBe("Systems");
   });
 
   it("replaces current state without clearing undo history", () => {
