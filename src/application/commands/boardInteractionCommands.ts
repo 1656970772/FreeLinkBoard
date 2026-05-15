@@ -2,20 +2,30 @@ import { defaultBoardSettings } from "../../domain/board/defaults";
 import type { BoardNode, BoardSelection, BoardState, NodeId, Point, Size } from "../../domain/board/types";
 import type { BoardCommand } from "./BoardCommand";
 
-const TEXT_NODE_VERTICAL_PADDING = 16;
-const TEXT_NODE_LINE_HEIGHT = 24;
+const TEXT_NODE_VERTICAL_PADDING = 20;
+const TEXT_NODE_LINE_HEIGHT = 18;
 const TEXT_NODE_HORIZONTAL_PADDING = 24;
-const AVERAGE_TEXT_CHARACTER_WIDTH = 7;
+const MIN_AUTO_TEXT_NODE_WIDTH = 120;
+const MAX_AUTO_TEXT_NODE_WIDTH = 320;
+const LATIN_TEXT_CHARACTER_WIDTH = 7.5;
+const CJK_TEXT_CHARACTER_WIDTH = 14;
+const SPACE_TEXT_CHARACTER_WIDTH = 4;
 
 export function estimateTextNodeSize(text: string): Size {
-  const availableWidth = defaultBoardSettings.textNodeSize.width - TEXT_NODE_HORIZONTAL_PADDING;
-  const charactersPerLine = Math.max(1, Math.floor(availableWidth / AVERAGE_TEXT_CHARACTER_WIDTH));
-  const visualLineCount = text.split(/\r\n|\r|\n/).reduce((count, line) => {
-    return count + Math.max(1, Math.ceil(line.length / charactersPerLine));
+  const lines = text.split(/\r\n|\r|\n/);
+  const longestLineWidth = Math.max(...lines.map(estimateTextLineWidth), 0);
+  const width = clamp(
+    Math.ceil(longestLineWidth + TEXT_NODE_HORIZONTAL_PADDING),
+    MIN_AUTO_TEXT_NODE_WIDTH,
+    MAX_AUTO_TEXT_NODE_WIDTH
+  );
+  const availableWidth = Math.max(1, width - TEXT_NODE_HORIZONTAL_PADDING);
+  const visualLineCount = lines.reduce((count, line) => {
+    return count + Math.max(1, Math.ceil(estimateTextLineWidth(line) / availableWidth));
   }, 0);
 
   return {
-    width: defaultBoardSettings.textNodeSize.width,
+    width,
     height: Math.max(
       defaultBoardSettings.textNodeSize.height,
       TEXT_NODE_VERTICAL_PADDING + visualLineCount * TEXT_NODE_LINE_HEIGHT
@@ -110,13 +120,7 @@ export class UpdateTextNodeCommand implements BoardCommand {
         [node.id]: {
           ...node,
           text: this.input.text,
-          size:
-            node.sizing === "auto"
-              ? {
-                  ...node.size,
-                  height: estimateTextNodeSize(this.input.text).height
-                }
-              : node.size
+          size: node.sizing === "auto" ? estimateTextNodeSize(this.input.text) : node.size
         }
       },
       updatedAt: this.input.clock
@@ -260,4 +264,22 @@ function cloneSelection(selection: BoardSelection): BoardSelection {
     nodeIds: [...selection.nodeIds],
     edgeIds: [...selection.edgeIds]
   };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function estimateTextLineWidth(line: string): number {
+  return Array.from(line).reduce((width, character) => {
+    if (/\s/.test(character)) {
+      return width + SPACE_TEXT_CHARACTER_WIDTH;
+    }
+
+    if (/[\u3000-\u9fff\uff00-\uffef]/.test(character)) {
+      return width + CJK_TEXT_CHARACTER_WIDTH;
+    }
+
+    return width + LATIN_TEXT_CHARACTER_WIDTH;
+  }, 0);
 }

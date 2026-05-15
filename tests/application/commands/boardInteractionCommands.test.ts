@@ -34,11 +34,17 @@ function createBoardWithNodes(nodes: BoardNode[]): BoardState {
 
 describe("board interaction commands", () => {
   it("estimates text node size from default width and wrapped text height", () => {
-    expect(estimateTextNodeSize("Short")).toEqual(defaultBoardSettings.textNodeSize);
-    expect(estimateTextNodeSize("Line one\nLine two\nLine three")).toEqual({
-      width: defaultBoardSettings.textNodeSize.width,
-      height: 88
+    expect(estimateTextNodeSize("Short")).toEqual({
+      width: 120,
+      height: defaultBoardSettings.textNodeSize.height
     });
+    expect(estimateTextNodeSize("Line one\nLine two\nLine three")).toEqual({
+      width: 120,
+      height: 74
+    });
+    expect(estimateTextNodeSize("A deliberately longer single line that should widen before wrapping").width).toBeGreaterThan(
+      defaultBoardSettings.textNodeSize.width
+    );
   });
 
   it("creates a text node at a point, selects it, and undoes the creation", () => {

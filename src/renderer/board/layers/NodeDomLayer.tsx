@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { PointerEvent, ReactElement } from "react";
-import type { BoardNode, NodeId, Size, Viewport } from "../../../domain/board/types";
+import type { BoardNode, NodeId, Point, Size, Viewport } from "../../../domain/board/types";
 import { boundsIntersect } from "../../../application/geometry/bounds";
 import { SpatialIndex } from "../../../application/geometry/SpatialIndex";
 import { getVisibleWorldRect, worldToScreen } from "../../../application/geometry/viewportTransform";
@@ -10,11 +10,14 @@ export type NodeDomLayerProps = {
   viewport: Viewport;
   size: Size;
   activeEditNodeId?: NodeId | null;
+  dragPreview?: { nodeIds: NodeId[]; delta: Point } | null;
+  nodeSizeOverrides?: Partial<Record<NodeId, Size>>;
   selectedNodeIds?: NodeId[];
   onNodeClick?: (nodeId: NodeId) => void;
   onNodeDoubleClick?: (nodeId: NodeId) => void;
   onNodePointerDown?: (nodeId: NodeId, event: PointerEvent<HTMLElement>) => void;
   onNodeResizePointerDown?: (nodeId: NodeId, event: PointerEvent<HTMLElement>) => void;
+  onTextDraftChange?: (nodeId: NodeId, text: string) => void;
   onTextCommit?: (nodeId: NodeId, text: string) => void;
   onVisibleNodeCountChange?: (count: number) => void;
 };
@@ -65,11 +68,14 @@ export function getVisibleNodes(
 
 export function NodeDomLayer({
   activeEditNodeId,
+  dragPreview,
+  nodeSizeOverrides,
   nodes,
   onNodeClick,
   onNodeDoubleClick,
   onNodePointerDown,
   onNodeResizePointerDown,
+  onTextDraftChange,
   onTextCommit,
   onVisibleNodeCountChange,
   selectedNodeIds = [],
@@ -90,7 +96,12 @@ export function NodeDomLayer({
   return (
     <div data-testid="node-dom-layer" style={{ inset: 0, pointerEvents: "none", position: "absolute" }}>
       {visibleNodes.map((node) => {
-        const screenPoint = worldToScreen(node.position, viewport);
+        const dragDelta = dragPreview?.nodeIds.includes(node.id) ? dragPreview.delta : null;
+        const position = dragDelta
+          ? { x: node.position.x + dragDelta.x, y: node.position.y + dragDelta.y }
+          : node.position;
+        const screenPoint = worldToScreen(position, viewport);
+        const nodeSize = nodeSizeOverrides?.[node.id] ?? node.size;
         const isLowDetail = viewport.zoom < 0.35;
         const isEditing = activeEditNodeId === node.id;
         const isSelected = selectedNodeIds.includes(node.id);
@@ -118,7 +129,7 @@ export function NodeDomLayer({
               boxSizing: "border-box",
               boxShadow: isSelected ? "0 0 0 2px rgba(47, 111, 106, 0.2)" : "none",
               color: node.style.textColor,
-              height: node.size.height,
+              height: nodeSize.height,
               left: 0,
               overflow: "visible",
               padding: "10px 12px",
@@ -127,11 +138,11 @@ export function NodeDomLayer({
               top: 0,
               transform: `translate(${screenPoint.x}px, ${screenPoint.y}px) scale(${viewport.zoom})`,
               transformOrigin: "top left",
-              width: node.size.width
+              width: nodeSize.width
             }}
           >
             {isEditing ? (
-              <NodeTextEditor node={node} onTextCommit={onTextCommit} />
+              <NodeTextEditor node={node} onTextCommit={onTextCommit} onTextDraftChange={onTextDraftChange} />
             ) : (
               <>
                 <div
@@ -186,10 +197,11 @@ export function NodeDomLayer({
 
 type NodeTextEditorProps = {
   node: BoardNode;
+  onTextDraftChange: ((nodeId: NodeId, text: string) => void) | undefined;
   onTextCommit: ((nodeId: NodeId, text: string) => void) | undefined;
 };
 
-function NodeTextEditor({ node, onTextCommit }: NodeTextEditorProps): ReactElement {
+function NodeTextEditor({ node, onTextCommit, onTextDraftChange }: NodeTextEditorProps): ReactElement {
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
@@ -202,6 +214,7 @@ function NodeTextEditor({ node, onTextCommit }: NodeTextEditorProps): ReactEleme
       aria-label="Node text"
       defaultValue={node.text}
       onBlur={(event) => onTextCommit?.(node.id, event.currentTarget.value)}
+      onChange={(event) => onTextDraftChange?.(node.id, event.currentTarget.value)}
       onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {

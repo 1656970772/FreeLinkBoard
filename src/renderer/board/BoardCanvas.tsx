@@ -5,7 +5,8 @@ import {
   CreateTextNodeCommand,
   MoveNodesCommand,
   ResizeNodeCommand,
-  UpdateTextNodeCommand
+  UpdateTextNodeCommand,
+  estimateTextNodeSize
 } from "../../application/commands/boardInteractionCommands";
 import { boundsIntersect } from "../../application/geometry/bounds";
 import type { Bounds } from "../../application/geometry/bounds";
@@ -43,6 +44,16 @@ type ResizeState = {
   nodeId: NodeId;
   startScreenPoint: Point;
   startSize: Size;
+};
+
+type EditingDraft = {
+  nodeId: NodeId;
+  text: string;
+};
+
+type DragPreview = {
+  nodeIds: NodeId[];
+  delta: Point;
 };
 
 function useMeasuredSize(ref: RefObject<HTMLDivElement | null>, explicitSize?: Size): Size {
@@ -102,8 +113,24 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   const resizeStateRef = useRef<ResizeState | null>(null);
   const selectionBoxRef = useRef<SelectionBoxState | null>(null);
   const [selectionBox, setSelectionBox] = useState<Bounds | null>(null);
+  const [editingDraft, setEditingDraft] = useState<EditingDraft | null>(null);
+  const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const nodes = useMemo(() => Object.values(board.nodes), [board.nodes]);
   const edges = useMemo(() => Object.values(board.edges), [board.edges]);
+  const nodeSizeOverrides = useMemo((): Partial<Record<NodeId, Size>> | undefined => {
+    if (!editingDraft) {
+      return undefined;
+    }
+
+    const node = board.nodes[editingDraft.nodeId];
+    if (!node || node.sizing !== "auto") {
+      return undefined;
+    }
+
+    return {
+      [editingDraft.nodeId]: estimateTextNodeSize(editingDraft.text)
+    };
+  }, [board.nodes, editingDraft]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -123,12 +150,14 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       if (event.code === "KeyZ") {
         event.preventDefault();
         setEditingNodeId(null);
+        setEditingDraft(null);
         undoBoardCommand();
       }
 
       if (event.code === "KeyY") {
         event.preventDefault();
         setEditingNodeId(null);
+        setEditingDraft(null);
         redoBoardCommand();
       }
     };
@@ -150,6 +179,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       })
     );
     setEditingNodeId(nodeId);
+    setEditingDraft({ nodeId, text: "" });
   };
 
   const getLocalScreenPoint = (event: PointerEvent<HTMLDivElement> | MouseEvent<HTMLDivElement>): Point => {
@@ -199,6 +229,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       nodeIds: selectedNodeIds,
       startScreenPoint: { x: event.clientX, y: event.clientY }
     };
+    setDragPreview(null);
   };
 
   const beginNodeResize = (nodeId: NodeId, event: PointerEvent<HTMLElement>): void => {
@@ -229,6 +260,19 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       return;
     }
 
+    const dragState = dragStateRef.current;
+    if (dragState) {
+      const delta = screenDeltaToWorldDelta(
+        {
+          x: event.clientX - dragState.startScreenPoint.x,
+          y: event.clientY - dragState.startScreenPoint.y
+        },
+        viewport.zoom
+      );
+      setDragPreview({ nodeIds: dragState.nodeIds, delta });
+      return;
+    }
+
     const selectionState = selectionBoxRef.current;
     if (!selectionState) {
       return;
@@ -252,6 +296,7 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
     }
 
     dragStateRef.current = null;
+    setDragPreview(null);
     const delta = {
       x: (event.clientX - dragState.startScreenPoint.x) / viewport.zoom,
       y: (event.clientY - dragState.startScreenPoint.y) / viewport.zoom
@@ -358,10 +403,16 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   const editNode = (nodeId: NodeId): void => {
     selectNodes([nodeId]);
     setEditingNodeId(nodeId);
+    setEditingDraft({ nodeId, text: board.nodes[nodeId]?.text ?? "" });
+  };
+
+  const updateNodeTextDraft = (nodeId: NodeId, text: string): void => {
+    setEditingDraft({ nodeId, text });
   };
 
   const commitNodeText = (nodeId: NodeId, text: string): void => {
     setEditingNodeId(null);
+    setEditingDraft(null);
     const node = board.nodes[nodeId];
     if (!node || node.text === text) {
       return;
@@ -377,6 +428,10 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
   };
 
   const zoomFromWheel = (event: WheelEvent<HTMLDivElement>): void => {
+    if (!(event.ctrlKey || event.metaKey)) {
+      return;
+    }
+
     event.preventDefault();
     const bounds = event.currentTarget.getBoundingClientRect();
     const zoomFactor = event.deltaY < 0 ? 1.1 : 0.9;
@@ -415,12 +470,15 @@ export function BoardCanvas({ board, className, size, style }: BoardCanvasProps)
       />
       <NodeDomLayer
         activeEditNodeId={editingNodeId}
+        dragPreview={dragPreview}
+        nodeSizeOverrides={nodeSizeOverrides ?? {}}
         nodes={nodes}
         onNodeClick={selectNode}
         onNodeDoubleClick={editNode}
         onNodePointerDown={beginNodeDrag}
         onNodeResizePointerDown={beginNodeResize}
         onVisibleNodeCountChange={setVisibleNodeCount}
+        onTextDraftChange={updateNodeTextDraft}
         onTextCommit={commitNodeText}
         selectedNodeIds={board.selection.nodeIds}
         size={canvasSize}
@@ -469,4 +527,11 @@ function screenBoundsToWorldBounds(bounds: Bounds, viewport: BoardState["viewpor
 
 function screenDistance(first: Point, second: Point): number {
   return Math.hypot(second.x - first.x, second.y - first.y);
+}
+
+function screenDeltaToWorldDelta(delta: Point, zoom: number): Point {
+  return {
+    x: delta.x / zoom,
+    y: delta.y / zoom
+  };
 }

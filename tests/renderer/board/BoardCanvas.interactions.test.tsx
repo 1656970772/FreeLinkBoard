@@ -134,9 +134,45 @@ describe("BoardCanvas interactions", () => {
 
     fireEvent.pointerDown(node, { button: 0, clientX: 100, clientY: 120, pointerId: 1 });
     fireEvent.pointerMove(screen.getByTestId("board-canvas"), { clientX: 130, clientY: 150, pointerId: 1 });
+
+    expect(screen.getByTestId("board-node-node_1")).toHaveStyle({
+      transform: "translate(130px, 150px) scale(1)"
+    });
+    expect(useDocumentStore.getState().currentBoard?.nodes.node_1?.position).toEqual({ x: 100, y: 120 });
+
     fireEvent.pointerUp(screen.getByTestId("board-canvas"), { clientX: 130, clientY: 150, pointerId: 1 });
 
     expect(useDocumentStore.getState().currentBoard?.nodes.node_1?.position).toEqual({ x: 130, y: 150 });
+  });
+
+  it("keeps a node visible after repeated live drags", () => {
+    resetStore({
+      ...createBoardWithNode(),
+      selection: { nodeIds: ["node_1"], edgeIds: [] }
+    });
+    render(<StoreConnectedBoard />);
+
+    for (let index = 0; index < 3; index += 1) {
+      const start = 120 + index * 30;
+      fireEvent.pointerDown(screen.getByTestId("board-node-node_1"), {
+        button: 0,
+        clientX: start,
+        clientY: start,
+        pointerId: index + 1
+      });
+      fireEvent.pointerMove(screen.getByTestId("board-canvas"), {
+        clientX: start + 30,
+        clientY: start + 20,
+        pointerId: index + 1
+      });
+      fireEvent.pointerUp(screen.getByTestId("board-canvas"), {
+        clientX: start + 30,
+        clientY: start + 20,
+        pointerId: index + 1
+      });
+
+      expect(screen.getByTestId("board-node-node_1")).toBeInTheDocument();
+    }
   });
 
   it("box-selects nodes by dragging blank canvas", () => {
@@ -318,6 +354,40 @@ describe("BoardCanvas interactions", () => {
     const node = useDocumentStore.getState().currentBoard?.nodes["node_stable-node"];
     expect(node?.size.height).toBeGreaterThan(defaultBoardSettings.textNodeSize.height);
     expect(screen.getByTestId("board-node-content-node_stable-node")).toHaveStyle({ whiteSpace: "pre-wrap" });
+  });
+
+  it("auto-sizes an edited auto node live before blur", () => {
+    render(<StoreConnectedBoard />);
+    fireEvent.doubleClick(screen.getByTestId("board-canvas"), { clientX: 120, clientY: 140 });
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "asd\nadasd\nasdasd" } });
+
+    expect(screen.getByTestId("board-node-node_stable-node")).toHaveStyle({
+      width: "120px",
+      height: "74px"
+    });
+    expect(useDocumentStore.getState().currentBoard?.nodes["node_stable-node"]?.text).toBe("");
+
+    fireEvent.blur(screen.getByRole("textbox"));
+
+    expect(useDocumentStore.getState().currentBoard?.nodes["node_stable-node"]?.text).toBe("asd\nadasd\nasdasd");
+    expect(useDocumentStore.getState().currentBoard?.nodes["node_stable-node"]?.size).toEqual({
+      width: 120,
+      height: 74
+    });
+  });
+
+  it("zooms only with Ctrl or Meta wheel", () => {
+    render(<StoreConnectedBoard />);
+    const canvas = screen.getByTestId("board-canvas");
+
+    fireEvent.wheel(canvas, { clientX: 320, clientY: 180, deltaY: -100 });
+
+    expect(screen.getByTestId("interaction-overlay-layer").textContent).toContain("zoom 1.00");
+
+    fireEvent.wheel(canvas, { clientX: 320, clientY: 180, ctrlKey: true, deltaY: -100 });
+
+    expect(screen.getByTestId("interaction-overlay-layer").textContent).toContain("zoom 1.10");
   });
 
   it("renders a resize handle for a selected non-editing node", () => {
