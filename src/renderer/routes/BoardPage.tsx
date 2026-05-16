@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { searchTextNodes } from "../../application/search/boardSearch";
 import { BoardCanvas } from "../board/BoardCanvas";
 import { useDocumentStore } from "../stores/documentStore";
@@ -19,7 +19,11 @@ export function BoardPage() {
   const setSearchQuery = useSearchStore((state) => state.setSearchQuery);
   const settings = useSettingsStore((state) => state.settings);
   const updateSettings = useSettingsStore((state) => state.updateSettings);
-  const searchResults = useMemo(() => (board ? searchTextNodes(board, searchQuery) : []), [board, searchQuery]);
+  const boardId = board?.id;
+  const searchResults = useMemo(
+    () => (board && isSearchOpen ? searchTextNodes(board, searchQuery) : []),
+    [board, isSearchOpen, searchQuery]
+  );
   const activeSearchResult = searchResults[Math.min(activeSearchIndex, Math.max(0, searchResults.length - 1))];
   const searchMatchNodeIds = searchResults.map((result) => result.nodeId);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -27,6 +31,12 @@ export function BoardPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const activeSearchLabel =
     searchResults.length > 0 ? `${Math.min(activeSearchIndex + 1, searchResults.length)} / ${searchResults.length}` : "0 / 0";
+
+  useLayoutEffect(() => {
+    if (!boardId) return;
+
+    closeSearch();
+  }, [boardId, closeSearch]);
 
   useEffect(() => {
     if (!isSearchOpen) return;

@@ -10,7 +10,12 @@ test.describe("FreeLinkBoard Electron smoke", () => {
   test.afterEach(async () => {
     if (electronApp) {
       const closePromise = electronApp.waitForEvent("close", { timeout: 10000 });
-      await electronApp.evaluate(({ app }) => app.exit(0));
+      await electronApp.evaluate(({ app, BrowserWindow }) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+          window.destroy();
+        }
+        app.exit(0);
+      });
       await closePromise;
       electronApp = null;
     }

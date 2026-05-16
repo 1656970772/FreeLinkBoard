@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createEmptyBoardState, defaultBoardSettings } from "../../../src/domain/board/defaults";
 import type { BoardState } from "../../../src/domain/board/types";
@@ -66,10 +66,12 @@ describe("BoardPage", () => {
   });
 
   it("renders search results and highlights matching nodes", () => {
-    useSearchStore.getState().openSearch();
-    useSearchStore.getState().setSearchQuery("alpha");
-
     render(<BoardPage />);
+
+    act(() => {
+      useSearchStore.getState().openSearch();
+      useSearchStore.getState().setSearchQuery("alpha");
+    });
 
     expect(screen.getByRole("searchbox")).toHaveValue("alpha");
     expect(screen.getByText("1 / 1")).toBeInTheDocument();
@@ -84,10 +86,27 @@ describe("BoardPage", () => {
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
   });
 
-  it("focuses the floating search input when search is opened from the search store", () => {
+  it("hides stale board search state on board entry until Ctrl+F opens it", () => {
     useSearchStore.getState().openSearch();
+    useSearchStore.getState().setSearchQuery("alpha");
 
     render(<BoardPage />);
+
+    expect(screen.queryByLabelText("Board search")).not.toBeInTheDocument();
+    expect(screen.getByTestId("board-node-alpha")).toHaveAttribute("data-search-highlight", "false");
+
+    fireEvent.keyDown(window, { code: "KeyF", ctrlKey: true });
+
+    expect(screen.getByRole("searchbox", { name: "Search current board" })).toHaveValue("alpha");
+    expect(screen.getByTestId("board-node-alpha")).toHaveAttribute("data-search-highlight", "active");
+  });
+
+  it("focuses the floating search input when search is opened from the search store", () => {
+    render(<BoardPage />);
+
+    act(() => {
+      useSearchStore.getState().openSearch();
+    });
 
     expect(screen.getByRole("searchbox")).toHaveFocus();
   });
